@@ -8,6 +8,7 @@ Created on Mon Jul 13 16:45:56 2020
 
 import jax.numpy as np
 from  jax.scipy.special import logsumexp as lse
+from  jax.nn import softmax as sm
 from jax import jit
 
 
@@ -32,9 +33,9 @@ def iteration_couples(model,t,Vnext):
     
     #print(EV.shape)
     solver = jit(solve,static_argnums=[2,3,4,5,6,7,8])
-    V = solver(money,EV,umult,sig,bet,i,wn,wt,sgrid)
+    V, s = solver(money,EV,umult,sig,bet,i,wn,wt,sgrid)
     
-    return V
+    return V, s
 
 
 def solve(money,EV,umult,sigma,beta,i,wn,wt,sgrid):
@@ -47,14 +48,13 @@ def solve(money,EV,umult,sigma,beta,i,wn,wt,sgrid):
     uc = (np.maximum(consumption,1e-6))**(1-sigma)/(1-sigma)
     utility = umult[None,None,None,:]*(uc[:,:,:,None]) - 1e6*consumption_negative[:,:,:,None]
     
-    mega_matrix = utility + beta*EV_stretch
+    mega_matrix = (utility + beta*EV_stretch)/ts
     #print(mega_matrix.shape)
     
-    V = ts*lse(mega_matrix/ts,axis=1)
-    #print(V.mean())
-    #print(V.max())
-    #print(V.min())
-    return V
+    V = ts*lse(mega_matrix,axis=1)
+    prb = sm(mega_matrix,axis=1)
+    s = np.sum(prb*sgrid[None,:,None,None],axis=1)
+    return V, s
 
 
 

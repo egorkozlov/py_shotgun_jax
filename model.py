@@ -34,9 +34,9 @@ class Model(object):
             except:
                 Vnext = np.zeros(self.v_couple_shape[-1])
             
-            Vthis = iteration_couples(self,t,Vnext)
+            Vthis, s = iteration_couples(self,t,Vnext)
             self.V = [Vthis] + self.V
-            print('min V: {}, max V: {}, mean V: {}'.format(Vthis.min(),Vthis.max(),Vthis.mean()))
+            print('min s: {}, max s: {}, mean s: {}'.format(s.min(),s.max(),s.mean()))
             print('done, time {}'.format(dt() - self.t0))
             
 m = Model()
