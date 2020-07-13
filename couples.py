@@ -20,7 +20,9 @@ def iteration_couples(model,t,Vnext):
     # compute EV
     
     ti = t if t < model.T else model.T-1
-    EV = dot_3d(Vnext,s.zfzmpsi_mat[ti].T)
+    
+    dot = jit(dot_3d)
+    EV = dot(Vnext,s.zfzmpsi_mat[ti].T)
     
     i, wn, wt, sgrid = s.v_sgrid_c.i, s.v_sgrid_c.wnext, s.v_sgrid_c.wthis, s.v_sgrid_c.val
 
