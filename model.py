@@ -35,7 +35,7 @@ class Model(object):
                 Vnext = self.V[0] 
                 MUnext = self.MU[0] 
             except:
-                Vnext = np.zeros(self.v_couple_shape[-1])
+                Vnext = 3*(np.zeros(self.v_couple_shape[-1]),)
                 MUnext = np.zeros(self.v_couple_shape[-1])
             
             
@@ -47,7 +47,7 @@ class Model(object):
             print('done, time {}'.format(dt() - self.t0))
       
 q = Model(beta=0.95,T=10).s[0].mean()
-from jax import grad
+#from jax import grad
 
 #ds = grad(lambda x : Model(beta=x,T=10).s[0].mean())(0.95)
 

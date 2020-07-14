@@ -22,15 +22,19 @@ def iteration_couples(model,t,Vnext,MUnext):
     ti = t if t < model.T else model.T-1
     
     dot = jit(dot_3d)
-    EV = dot(Vnext,s.zfzmpsi_mat[ti].T)
-    EMU = dot(MUnext,s.zfzmpsi_mat[ti].T)
     
+    VCnext, VFnext, VMnext = Vnext
     
+    EVC, EVF, EVM, EMU  = [dot(x,s.zfzmpsi_mat[ti].T) \
+                           for x in (VCnext,VFnext,VMnext,MUnext)]
+    
+    EV = (EVC, EVF, EVM)
     
     agrid = s.agrid_c
     
     
-    i, wn, wt, sgrid = s.v_sgrid_c.i, s.v_sgrid_c.wnext, s.v_sgrid_c.wthis, s.v_sgrid_c.val
+    i, wn, wt, sgrid = \
+    s.v_sgrid_c.i, s.v_sgrid_c.wnext, s.v_sgrid_c.wthis, s.v_sgrid_c.val
 
     wf = np.exp(s.zfzmpsi[ti][:,0])
     wm = np.exp(s.zfzmpsi[ti][:,1])
@@ -41,22 +45,31 @@ def iteration_couples(model,t,Vnext,MUnext):
     money = R*s.agrid_c[:,None] + li
     
     umult = s.u_mult(s.theta_grid_coarse)
+    kf, km = s.c_mult(s.theta_grid_coarse)
+    
     
     
     
     #print(EV.shape)
     #solver = jit(solve,static_argnums=[2,3,4,5,6,7,8])
-    V_vfi, s_vfi = solve_vfi(money,EV,umult,sig,bet,i,wn,wt,sgrid,psi)    
+    V_vfi, VF_vfi, VM_vfi, s_vfi = \
+                    solve_vfi(money,EV,umult,kf,km,sig,bet,i,wn,wt,sgrid,psi)    
     
     last = (t==model.T)
-    V, s, MU = solve_egm(EV,EMU,li,umult,agrid,sig,bet,R,i,wn,wt,psi,last) 
-    print((V.mean(),V_vfi.mean()))
-    print((s.mean(),s_vfi.mean()))
+    V, VF, VM, s, MU = \
+                solve_egm(EV,EMU,li,umult,kf,km,agrid,sig,bet,R,i,wn,wt,psi,last) 
+                
+                
+                
+    print('V egm {}, vfi {}'.format(V.mean(),V_vfi.mean()))
+    print('VF egm {}, vfi {}'.format(VF.mean(),VF_vfi.mean()))
+    print('VM egm {}, vfi {}'.format(VM.mean(),VM_vfi.mean()))
+    print('s egm {}, vfi {}'.format(s.mean(),s_vfi.mean()))   
     
-    return V, MU, s
+    return (V,VF,VM), MU, s
 
 
-def solve_egm(EV,EMU,li,umult,agrid,sigma,beta,R,i,wn,wt,psi,last):
+def solve_egm(EV_list,EMU,li,umult,kf,km,agrid,sigma,beta,R,i,wn,wt,psi,last):
     
     if not last:
         c_prescribed = (beta*R*EMU / umult[None,None,:])**(-1/sigma) 
@@ -69,8 +82,15 @@ def solve_egm(EV,EMU,li,umult,agrid,sigma,beta,R,i,wn,wt,psi,last):
         
         j, wn = interp_manygrids(a_implied,agrid,axis=0,trim=True)
         s_egm = agrid[j]*(1-wn) + agrid[j+1]*wn
-        EV_egm = np.take_along_axis(EV,j,axis=0)*(1-wn) + \
-                 np.take_along_axis(EV,j+1,axis=0)*(wn)
+        
+        
+        
+        EV_egm_list = [(np.take_along_axis(x,j,axis=0)*(1-wn) + \
+                        np.take_along_axis(x,j+1,axis=0)*(wn))
+                            for x in EV_list]
+                                                
+                        
+       
         
         agrid_r = agrid.reshape((agrid.size,) + a_i_min.ndim*(1,))
         i_above = (agrid_r >= a_i_max)
@@ -80,12 +100,16 @@ def solve_egm(EV,EMU,li,umult,agrid,sigma,beta,R,i,wn,wt,psi,last):
         s_below = 0.0
         s_above = agrid[-1]
         
-        EV_below = EV[:1, ...]
-        EV_above = EV[-1:,...]
+        EV_below_list = [x[:1, ...] for x in EV_list]
+        EV_above_list = [x[-1:,...] for x in EV_list]        
+        
         
         
         s = s_egm*i_egm + s_above*i_above # + 0.0*i_below
-        EV_int = EV_egm*i_egm + EV_above*i_above + EV_below*i_below
+        
+        EV_int_list = [x*i_egm + y*i_above + x*i_below for (x,y,z) in 
+                           zip(EV_egm_list,EV_above_list,EV_below_list)]
+        
         c = R*agrid_r + li[:,:,None] - s
         
         assert np.all(s>=s_below)
@@ -96,15 +120,20 @@ def solve_egm(EV,EMU,li,umult,agrid,sigma,beta,R,i,wn,wt,psi,last):
         
         c = R*agrid[:,None,None] + li[:,:,None]
         s = 0.0*c
-        EV_int = EV # it is 0 anyways
+        EV_int_list = EV_list # it is 0 anyways
+        
         
     
     MUc = umult[None,None,:]*(c**(-sigma))
     
     # this EV should be interpolated as well
     # 
+    
+    EV_int, EVF_int, EVM_int = EV_int_list
     V = umult[None,None,:]*(c**(1-sigma)/(1-sigma)) + psi + beta*EV_int
-    return V, s, MUc
+    VF = ((kf[None,None,:]*c)**(1-sigma)/(1-sigma)) + psi + beta*EVF_int
+    VM = ((km[None,None,:]*c)**(1-sigma)/(1-sigma)) + psi + beta*EVM_int
+    return V, VF, VM, s, MUc
 
 
 def interp(grid,xnew,return_wnext=True,trim=False):    
@@ -141,32 +170,62 @@ def interp_manygrids(grids,xs,axis=0,return_wnext=True,trim=False):
     j = np.swapaxes(j,-1,axis).squeeze(axis=-1)
     grid_j = np.take_along_axis(grids,j,axis=axis)
     grid_jp = np.take_along_axis(grids,j+1,axis=axis)
-    xs_r = xs.reshape((1,)*(axis-1) + (xs.size,) + (1,)*(grids.ndim - 1 - axis))
+    
+    xs_r = xs.reshape(
+            (1,)*(axis-1) + (xs.size,) + (1,)*(grids.ndim - 1 - axis)
+                     )
+    
     wnext = (xs_r - grid_j)/(grid_jp - grid_j)
     return j, (wnext if return_wnext else 1-wnext)
 
 
 
 
-def solve_vfi(money,EV,umult,sigma,beta,i,wn,wt,sgrid,psi):
+def solve_vfi(money,EV_list,umult,kf,km,sigma,beta,i,wn,wt,sgrid,psi):
     
     #ts = 0.01
     # dim is (na,ns,nexo,ntheta)
-    EV_stretch = (wt[:,None,None]*EV[i,:,:] + wn[:,None,None]*EV[i+1,:,:])[None,:,:,:]
+    
+    
+    
+    EV_stretch_list = [(wt[:,None,None]*x[i,:,:] + \
+                              wn[:,None,None]*x[i+1,:,:])
+                        for x in EV_list]
+    
+    
+    
     consumption = money[:,None,:] - sgrid[None,:,None]
     consumption_negative = (consumption <= 0)
     uc = (np.maximum(consumption,1e-8))**(1-sigma)/(1-sigma)
-    utility = umult[None,None,None,:]*(uc[:,:,:,None]) - 1e8*consumption_negative[:,:,:,None]
+    utility = umult[None,None,None,:]*(uc[:,:,:,None]) - \
+                                1e9*consumption_negative[:,:,:,None]
     
-    mega_matrix = utility + beta*EV_stretch
+    
+    EVs, EVFs, EVMs = EV_stretch_list
+    
+    mega_matrix = utility + beta*EVs[None,:,:,:] 
     #print(mega_matrix.shape)
     
     ind_s = mega_matrix.argmax(axis=1)
-    V = np.take_along_axis(mega_matrix,ind_s[:,None,:,:],1).squeeze(axis=1) + psi
+    V = np.take_along_axis(mega_matrix,ind_s[:,None,:,:],1)\
+                                                .squeeze(axis=1) + psi
+                                                
+                                                
     s = sgrid[ind_s]
-    return V, s
-
-
+    c = money[:,:,None] - s
+    
+    V_check = umult[None,None,:]*(c**(1-sigma)/(1-sigma)) + \
+                            psi + beta*np.take_along_axis(EVs,ind_s,0)
+                
+    VF = ((kf[None,None,:]*c)**(1-sigma)/(1-sigma)) + \
+                            psi + beta*np.take_along_axis(EVFs,ind_s,0)
+    VM = ((km[None,None,:]*c)**(1-sigma)/(1-sigma)) + \
+                            psi + beta*np.take_along_axis(EVMs,ind_s,0)
+                
+                
+    assert np.allclose(V_check,V,atol=1e-5)
+    
+    return V, VF, VM, s
 
 
 
