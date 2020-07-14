@@ -136,6 +136,8 @@ def solve_egm(EV_list,EMU,li,umult,kf,km,agrid,sigma,beta,R,i,wn,wt,psi,last):
     return V, VF, VM, s, MUc
 
 
+
+
 def interp(grid,xnew,return_wnext=True,trim=False):    
     # this finds grid positions and weights for performing linear interpolation
     # this implementation uses numpy

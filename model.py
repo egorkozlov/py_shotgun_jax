@@ -7,6 +7,7 @@ Created on Mon Jul 13 16:42:24 2020
 """
 
 from couples import iteration_couples
+from singles import iteration_singles
 import jax.numpy as np
 from timeit import default_timer as dt
 
@@ -20,33 +21,78 @@ class Model(object):
         s = self.setup
         self.T = self.setup.T
         self.v_couple_shape = [(s.na_c,s.nexo_t[t],s.ntheta_coarse) for t in range(self.T)]
+        self.v_sf_shape = [(s.na_s,s.n_zf) for t in range(self.T)]
+        self.v_sm_shape = [(s.na_s,s.n_zm) for t in range(self.T)]
         print('setup created, time {}'.format(dt() - self.t0))
         self.solve()
         
     def solve(self):
-        self.V = []
-        self.s = []
-        self.MU = []
+        self.VC = []
+        self.sc = []
+        self.MUC = []
+        
+        self.VSF = []
+        self.ssf = []
+        self.MUSF = []
+        
+        self.VSM = []
+        self.ssm = []
+        self.MUSM = []
         
         for t in range(self.T,0,-1):
-            # dtype - ?
+            # couples:
+            
             print('solving for t = {}'.format(t))
             try:
-                Vnext = self.V[0] 
-                MUnext = self.MU[0] 
+                Vnext = self.VC[0] 
+                MUnext = self.MUC[0] 
             except:
                 Vnext = 3*(np.zeros(self.v_couple_shape[-1]),)
                 MUnext = np.zeros(self.v_couple_shape[-1])
             
             
             Vthis, MUthis, s = iteration_couples(self,t,Vnext,MUnext)
-            self.s = [s] + self.s
-            self.V = [Vthis] + self.V
-            self.MU = [MUthis] + self.MU
-            print('min s: {}, max s: {}, mean s: {}'.format(s.min(),s.max(),s.mean()))
-            print('done, time {}'.format(dt() - self.t0))
+            self.sc = [s] + self.sc
+            self.VC = [Vthis] + self.VC
+            self.MUC = [MUthis] + self.MUC
+            print('couples done, time {}'.format(dt() - self.t0))
+            
+            
+            # singles:
+            
+            try:
+                Vnext = self.VSF[0] 
+                MUnext = self.MUSF[0] 
+            except:
+                Vnext = np.zeros(self.v_sf_shape[-1])
+                MUnext = np.zeros(self.v_sf_shape[-1])
+            
+            Vthis, MUthis, s = iteration_singles(self,t,Vnext,MUnext,True)
+            self.ssf = [s] + self.ssf
+            self.VSF = [Vthis] + self.VSF
+            self.MUSF = [MUthis] + self.MUSF
+            print('single female done, time {}'.format(dt() - self.t0))
+            
+            
+            try:
+                Vnext = self.VSM[0] 
+                MUnext = self.MUSM[0] 
+            except:
+                Vnext = np.zeros(self.v_sm_shape[-1])
+                MUnext = np.zeros(self.v_sm_shape[-1])
+            
+            Vthis, MUthis, s = iteration_singles(self,t,Vnext,MUnext,False)
+            self.ssm = [s] + self.ssm
+            self.VSM = [Vthis] + self.VSM
+            self.MUSM = [MUthis] + self.MUSM
+            print('single male done, time {}'.format(dt() - self.t0))
+            
+            
+            
+            
+            
       
-q = Model(beta=0.95,T=10).s[0].mean()
+q = Model(beta=0.95,T=10).ssf[0].mean()
 #from jax import grad
 
 #ds = grad(lambda x : Model(beta=x,T=10).s[0].mean())(0.95)
