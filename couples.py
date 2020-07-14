@@ -10,9 +10,10 @@ import jax.numpy as np
 from  jax.scipy.special import logsumexp as lse
 from  jax.nn import softmax as sm
 from jax import jit
+from gridvec import VecOnGrid
 
 
-def iteration_couples(model,t,Vnext,MUnext):
+def iteration_couples(model,t,Vnext_list,MUnext_list):
     s = model.setup
     sig = s.sigma
     bet = s.beta
@@ -21,14 +22,23 @@ def iteration_couples(model,t,Vnext,MUnext):
     
     ti = t if t < model.T else model.T-1
     
-    dot = jit(dot_3d)
     
-    VCnext, VFnext, VMnext = Vnext
     
+    VCnext, VFnext, VMnext, VFsingle, VMsingle = Vnext_list
+    
+    MUnext, MUnext_sf, MUnext_sm = MUnext_list
+    
+    EVC, EVF, EVM, EMU, i_div = \
+    naive_divorce(model,Vnext_list,MUnext_list,s.zfzmpsi_mat[ti].T)
+    
+    '''
     EVC, EVF, EVM, EMU  = [dot(x,s.zfzmpsi_mat[ti].T) \
                            for x in (VCnext,VFnext,VMnext,MUnext)]
     
+    '''
     EV = (EVC, EVF, EVM)
+    
+    
     
     agrid = s.agrid_c
     
@@ -69,6 +79,8 @@ def iteration_couples(model,t,Vnext,MUnext):
     return (V,VF,VM), MU, s
 
 
+
+
 def solve_egm(EV_list,EMU,li,umult,kf,km,agrid,sigma,beta,R,i,wn,wt,psi,last):
     
     if not last:
@@ -76,11 +88,18 @@ def solve_egm(EV_list,EMU,li,umult,kf,km,agrid,sigma,beta,R,i,wn,wt,psi,last):
         m_implied = c_prescribed + agrid[:,None,None]
         a_implied = (1/R)*(m_implied - li[:,:,None])
         
-        a_i_min = a_implied[0,...]
-        a_i_max = a_implied[-1,...]
+        a_i_min = a_implied.min(axis=0)#[0,...]
+        a_i_max = a_implied.max(axis=0)#[-1,...]
+        
+        shp = (a_implied.shape[0],a_implied.size // a_implied.shape[0])
+        a_r_arbitrary = a_implied.reshape(shp)
+        
+        a_r_monotonic = a_r_arbitrary
+        a_monotonic = a_r_monotonic.reshape(a_implied.shape)
         
         
-        j, wn = interp_manygrids(a_implied,agrid,axis=0,trim=True)
+        # this runs if a_implied is monotonic
+        j, wn = interp_manygrids(a_monotonic,agrid,axis=0,trim=True)
         s_egm = agrid[j]*(1-wn) + agrid[j+1]*wn
         
         
@@ -90,7 +109,7 @@ def solve_egm(EV_list,EMU,li,umult,kf,km,agrid,sigma,beta,R,i,wn,wt,psi,last):
                             for x in EV_list]
                                                 
                         
-       
+        
         
         agrid_r = agrid.reshape((agrid.size,) + a_i_min.ndim*(1,))
         i_above = (agrid_r >= a_i_max)
@@ -230,7 +249,50 @@ def solve_vfi(money,EV_list,umult,kf,km,sigma,beta,i,wn,wt,sgrid,psi):
     return V, VF, VM, s
 
 
-
+def naive_divorce(model,Vlist,MUlist,M,div_costs=0.0):
+    # this performs integration with a naive divorce
+    
+    s = model.setup
+    
+    VCnext, VFnext, VMnext, VFsingle, VMsingle = Vlist
+    
+    MUnext, MUnext_sf, MUnext_sm = MUlist
+    
+    
+    assets_divorce_fem = 0.5*s.agrid_c
+    assets_divorce_mal = 0.5*s.agrid_c
+    
+    v_a_fem = VecOnGrid(s.agrid_s,assets_divorce_fem)
+    i_f, wn_f, wt_f = v_a_fem.i, v_a_fem.wnext, v_a_fem.wthis
+    
+    v_a_mal = VecOnGrid(s.agrid_s,assets_divorce_mal)
+    i_m, wn_m, wt_m = v_a_mal.i, v_a_mal.wnext, v_a_mal.wthis
+    
+    ie, izf, izm, ipsi = s.all_indices()
+    
+    VF_div = (wt_f[:,None]*VFsingle[i_f,:] + wn_f[:,None]*VFsingle[i_f+1,:])[:,izf][:,:,None]
+    VM_div = (wt_m[:,None]*VMsingle[i_m,:] + wn_m[:,None]*VMsingle[i_m+1,:])[:,izm][:,:,None]
+    
+    MUF_div = (wt_f[:,None]*(0.5*MUnext_sf)[i_f,:] + wn_f[:,None]*(0.5*MUnext_sf)[i_f+1,:])[:,izf][:,:,None]
+    MUM_div = (wt_m[:,None]*(0.5*MUnext_sm)[i_m,:] + wn_m[:,None]*(0.5*MUnext_sm)[i_m+1,:])[:,izm][:,:,None]
+    
+    i_stay = (VFnext >= VF_div - div_costs) & (VMnext >= VM_div - div_costs)
+    i_div = ~i_stay
+    
+    t = s.theta_grid_coarse[None,None,:]
+    VC_div = t*VF_div + (1-t)*VM_div
+    MU_div = t*MUF_div + (1-t)*MUM_div
+    
+    VC, VF, VM, MU = [i_stay*x + (i_div)*y for x,y in
+                                  zip((VCnext,VFnext,VMnext,MUnext),
+                                      (VC_div,VF_div,VM_div,MU_div))]
+    
+    dot = jit(dot_3d)
+    
+    EVC, EVF, EVM, EMU = [dot(x,M) for x in [VC, VF, VM, MU]]
+    return EVC, EVF, EVM, EMU, i_div
+    
+    
 
 def dot_3d(V,M):
     # this computes array Q, such that

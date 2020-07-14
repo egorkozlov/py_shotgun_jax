@@ -63,6 +63,22 @@ class Setup(object):
         self.check_conflicts()
         
         
+    def all_indices(self,ind_or_inds=None):
+        # this is a tool to convert indices of zf, zm and psi into iexo
+        
+        if ind_or_inds is None: 
+            ind_or_inds = np.array(range(self.nexo_t[0]))
+        
+        if isinstance(ind_or_inds,tuple):
+            izf,izm,ipsi = ind_or_inds
+            ind = izf*self.n_zm*self.n_psi + izm*self.n_psi + ipsi
+        else:
+            ind = ind_or_inds
+            izf = ind // (self.n_zm*self.n_psi)
+            izm = (ind - izf*self.n_zm*self.n_psi) // self.n_psi
+            ipsi = ind - izf*self.n_zm*self.n_psi - izm*self.n_psi
+            
+        return ind, izf, izm, ipsi
         
         
         

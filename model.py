@@ -44,11 +44,16 @@ class Model(object):
             
             print('solving for t = {}'.format(t))
             try:
-                Vnext = self.VC[0] 
-                MUnext = self.MUC[0] 
+                Vnext  = self.VC[0]  + (self.VSF[0], self.VSM[0] )
+                MUnext = (self.MUC[0],) + (self.MUSF[0],self.MUSM[0])
             except:
-                Vnext = 3*(np.zeros(self.v_couple_shape[-1]),)
-                MUnext = np.zeros(self.v_couple_shape[-1])
+                zz = (np.zeros(self.v_sf_shape[-1]),
+                      np.zeros(self.v_sm_shape[-1]))
+                
+                Vnext = 3*(np.zeros(self.v_couple_shape[-1]),) + zz
+               
+                MUnext = (np.zeros(self.v_couple_shape[-1]),) + zz
+                
             
             
             Vthis, MUthis, s = iteration_couples(self,t,Vnext,MUnext)
