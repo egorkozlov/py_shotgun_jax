@@ -25,18 +25,30 @@ class Model(object):
         
     def solve(self):
         self.V = []
+        self.s = []
+        self.MU = []
         
         for t in range(self.T,0,-1):
             # dtype - ?
             print('solving for t = {}'.format(t))
             try:
                 Vnext = self.V[0] 
+                MUnext = self.MU[0] 
             except:
                 Vnext = np.zeros(self.v_couple_shape[-1])
+                MUnext = np.zeros(self.v_couple_shape[-1])
             
-            Vthis, s = iteration_couples(self,t,Vnext)
+            
+            Vthis, MUthis, s = iteration_couples(self,t,Vnext,MUnext)
+            self.s = [s] + self.s
             self.V = [Vthis] + self.V
+            self.MU = [MUthis] + self.MU
             print('min s: {}, max s: {}, mean s: {}'.format(s.min(),s.max(),s.mean()))
             print('done, time {}'.format(dt() - self.t0))
-            
-m = Model()
+      
+q = Model(beta=0.95,T=10).s[0].mean()
+from jax import grad
+
+#ds = grad(lambda x : Model(beta=x,T=10).s[0].mean())(0.95)
+
+

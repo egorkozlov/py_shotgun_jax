@@ -34,7 +34,7 @@ class Setup(object):
         
         n_zf = 7
         n_zm = 5
-        n_psi = 13
+        n_psi = 3
         sig_zf = 0.2
         sig_zf_init = 0.4
         sig_zm = 0.2
