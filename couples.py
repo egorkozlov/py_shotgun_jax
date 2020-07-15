@@ -75,11 +75,13 @@ def iteration_couples(model,t,Vnext_list,MUnext_list):
     
     
     
-    segm = jit(solve_egm,static_argnums=(3,4,5,6,7,8,9,10,11,12,13,14))
+    #segm = jit(solve_egm,static_argnums=(3,4,5,6,7,8,9,10,11,12,13,14))
+    segm = solve_egm
     
     last = (t==model.T)
     V, VF, VM, s, MU = \
                 segm(EV,EMU,li,umult,kf,km,agrid,sig,bet,R,i,wn,wt,psi,last) 
+                
     
     print('egm time: {}'.format(dt() - t0))
                    
@@ -95,7 +97,7 @@ def iteration_couples(model,t,Vnext_list,MUnext_list):
     
     return (V,VF,VM), MU, s
 
-from ue import upper_envelope_matrix
+from ue import upper_envelope_matrix, upper_envelope, upper_envelope_vmap
     
 def solve_egm(EV_list,EMU,li,umult,kf,km,agrid,sigma,beta,R,i,wn,wt,psi,last):
     
@@ -114,12 +116,13 @@ def solve_egm(EV_list,EMU,li,umult,kf,km,agrid,sigma,beta,R,i,wn,wt,psi,last):
         li_r = np.broadcast_to(li.squeeze()[:,None],a_implied.shape[1:]).reshape(shp[-1])
         um_r = np.broadcast_to(umult[None,:],a_implied.shape[1:]).reshape(shp[-1])
         
-        #
+        #s = jit(upper_envelope_matrix,static_argnums=(3,5,6,7))
+        #c_r, V_r = s(bEV_r,a_implied_r,c_implied_r,agrid,li_r,um_r,R,sigma)
         
+        c_r, V_r = upper_envelope_vmap(bEV_r,a_implied_r,c_implied_r,agrid,li_r,um_r,R,sigma)
         
-        s = jit(upper_envelope_matrix,static_argnums=(3,5,6,7))
-        c_r, V_r = s(bEV_r,a_implied_r,c_implied_r,agrid,li_r,um_r,R,sigma)
-        
+        #assert np.allclose(V_r2,V_r)
+        #assert np.allclose(c_r2,c_r)
         
         s_r = li_r + R*agrid[:,None] - c_r
         
@@ -135,16 +138,6 @@ def solve_egm(EV_list,EMU,li,umult,kf,km,agrid,sigma,beta,R,i,wn,wt,psi,last):
                         np.take_along_axis(x,j+1,axis=0)*(wn))
                             for x in EV_list]
            
-
-        # so we need consumption, savings and values in-the-beginning (net of psi)
-           
-        #s_below = 0.0
-        #s_above = agrid[-1]
-        
-        #assert np.all(s>=s_below)
-        #assert np.all(s<=s_above)
-        #assert np.all(c>=0)
-        
     else:
         
         c = R*agrid[:,None,None] + li[:,:,None]
