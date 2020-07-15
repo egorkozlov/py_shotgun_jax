@@ -107,66 +107,73 @@ def solve_egm(EV_list,EMU,li,umult,kf,km,agrid,sigma,beta,R,i,wn,wt,psi,last):
         a_implied = (1/R)*(m_implied - li[:,:,None])
         bEV = beta*EV_list[0]
         
-        dm = np.diff(m_implied,axis=0)
         
-        if not np.all(dm>0):
-            
-            print('upper envelope required')    
-            
-            shp = (a_implied.shape[0],a_implied.size // a_implied.shape[0])
+        
+        shp = (a_implied.shape[0],a_implied.size // a_implied.shape[0])
            
-            a_implied_r = a_implied.reshape(shp)
-            c_implied_r = c_implied.reshape(shp)
-            bEV_r = bEV.reshape(shp)
-            li_r = np.broadcast_to(li.squeeze()[:,None],a_implied.shape[1:]).reshape(shp[-1])
-            um_r = np.broadcast_to(umult[None,:],a_implied.shape[1:]).reshape(shp[-1])
+        a_implied_r = a_implied.reshape(shp)
+        c_implied_r = c_implied.reshape(shp)
+        m_implied_r = m_implied.reshape(shp)
+        bEV_r = bEV.reshape(shp)
+        li_r = np.broadcast_to(li.squeeze()[:,None],a_implied.shape[1:]).reshape(shp[-1])
+        um_r = np.broadcast_to(umult[None,:],a_implied.shape[1:]).reshape(shp[-1])
+        
+        
+        
+        dm = np.diff(m_implied_r,axis=0)
+        
+        ind = np.where(np.any(dm<=0,axis=0))[0]
+        
+        
+        # this inwokes arbitrary size dimensionality...
+        
+        
+        # first do everything as if the grid is monotonic
+        # the fix few entities where it is not
+        # simple interpolation
+        #print('no upper envelope required: simple algorithm')
+        
+        a_i_min = a_implied_r.min(axis=0,keepdims=True)
+        a_i_max = a_implied_r.max(axis=0,keepdims=True)           
+        j_egm, wn_egm = interp_manygrids(a_implied_r,agrid,axis=0,trim=True)
+        s_egm = agrid[j_egm]*(1-wn_egm) + agrid[j_egm+1]*wn_egm
+        i_above = (agrid[:,None] >= a_i_max)
+        i_below = (agrid[:,None] <= a_i_min)
+        i_egm = (~i_above) & (~i_below)            
+        
+        s_r = s_egm*i_egm + agrid[-1]*i_above
+        c_r = R*agrid[:,None] + li_r - s_r
+        
+        # yeah this runs things again, compare with j_egm
+        j_r, wn_r = interp(agrid,s_r)
+        assert np.all(j_r[i_egm]==j_egm[i_egm])
+            
+        # this makes the function un-jittable
+        if np.any(dm<=0):
+            print('upper envelope required: invoking the algorithm')    
             
             
-            # split
+            bEV_r_ue, a_implied_r_ue, c_implied_r_ue,  = \
+                [x[:,ind] for x in (bEV_r,a_implied_r,c_implied_r)]
+            li_r_ue, um_r_ue = [x[ind] for x in (li_r,um_r)]
             
             
-            #print(inds)
-            #s = jit(upper_envelope_matrix,static_argnums=(3,5,6,7))
-            #c_r, V_r = s(bEV_r,a_implied_r,c_implied_r,agrid,li_r,um_r,R,sigma)
-            
-            c_r, V_r = upper_envelope_vmap(bEV_r,a_implied_r,c_implied_r,agrid,li_r,um_r,R,sigma)
-            
+            c_r_ue, V_r_ue = upper_envelope_matrix(bEV_r_ue,a_implied_r_ue,c_implied_r_ue,agrid,li_r_ue,um_r_ue,R,sigma)
             #assert np.allclose(V_r2,V_r)
             #assert np.allclose(c_r2,c_r)
             
-            s_r = li_r + R*agrid[:,None] - c_r
+            s_r_ue = li_r_ue + R*agrid[:,None] - c_r_ue
+            j_r_ue, wn_r_ue = interp(agrid,s_r_ue) # correspodning indices
             
-            
-            j_r, wn_r = interp(agrid,s_r) # correspodning indices
-            
-            
-            c, s, V, j, wn = [x.reshape(a_implied.shape)
-                                    for x in (c_r, s_r, V_r, j_r, wn_r)]
+            c_r, s_r, j_r, wn_r = [x.at[:,ind].set(y) for x,y
+                                    in zip((c_r, s_r, j_r, wn_r),
+                                         (c_r_ue, s_r_ue, j_r_ue, wn_r_ue))]
         
-        else:
-            
-            # simple interpolation
-            print('no upper envelope required')
-            
-            a_i_min = a_implied[0,...]
-            a_i_max = a_implied[-1,...]            
-            j_egm, wn_egm = interp_manygrids(a_implied,agrid,axis=0,trim=True)
-            s_egm = agrid[j_egm]*(1-wn_egm) + agrid[j_egm+1]*wn_egm
-            
-            i_above = (agrid[:,None,None] >= a_i_max)
-            i_below = (agrid[:,None,None] <= a_i_min)
-            i_egm = (~i_above) & (~i_below)
-            
-            
-            s = s_egm*i_egm + agrid[-1]*i_above
-            c = R*agrid[:,None,None] + li[:,:,None] - s
-            V = None # this V is not needed 
-            
-            # yeah this runs things again, compare with j_egm
-            j, wn = interp(agrid,s)
-            assert np.all(j[i_egm]==j_egm[i_egm])
-            
-            
+        
+        c, s, j, wn = [x.reshape(a_implied.shape)
+                                for x in (c_r, s_r, j_r, wn_r)]
+        
+        
         EV_int_list = [(np.take_along_axis(x,j,axis=0)*(1-wn) + \
                         np.take_along_axis(x,j+1,axis=0)*(wn))
                             for x in EV_list]
@@ -212,7 +219,7 @@ def interp_manygrids(grids,xs,axis=0,return_wnext=True,trim=False):
     #grids[:,i,j,k] for all i, j, k)
     
     
-    assert np.all(np.diff(grids,axis=axis) > 0)
+    #assert np.all(np.diff(grids,axis=axis) > 0)
     
     '''
     if trim: xs = np.clip(xs[:,None,None],
@@ -231,8 +238,9 @@ def interp_manygrids(grids,xs,axis=0,return_wnext=True,trim=False):
     xs_r = xs.reshape(
             (1,)*(axis-1) + (xs.size,) + (1,)*(grids.ndim - 1 - axis)
                      )
-    
+    #assert False
     wnext = (xs_r - grid_j)/(grid_jp - grid_j)
+    assert wnext.shape == j.shape
     return j, (wnext if return_wnext else 1-wnext)
 
 

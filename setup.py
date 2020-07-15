@@ -106,7 +106,7 @@ class Setup(object):
         pivot = 0.1
         
         g['na_s'] = 40
-        g['na_c'] = 100
+        g['na_c'] = 50
         g['amin'] = 0.0
         g['amax_s'] = 40.0
         g['amax_c'] = factor_c*g['amax_s']
@@ -139,17 +139,14 @@ class Setup(object):
         
         
         self.female_grid = dict()
-        sig_zf_init = 0.4
-        sig_zf = 0.16
-        zf, zf_mat = gen(self.T,sig_zf,sig_zf_init,self.n_zf)
+
+        zf, zf_mat = gen(self.T,self.sig_zf,self.sig_zf_init,self.n_zf)
         self.female_grid['zf_grid'] = zf
         self.female_grid['zf_mat'] = zf_mat
         
         
         self.male_grid = dict()
-        sig_zm_init = 0.4
-        sig_zm = 0.16
-        zm, zm_mat = gen(self.T,sig_zm,sig_zm_init,self.n_zm)
+        zm, zm_mat = gen(self.T,self.sig_zm,self.sig_zm_init,self.n_zm)
         self.male_grid['zm_grid'] = zm
         self.male_grid['zm_mat'] = zm_mat
         

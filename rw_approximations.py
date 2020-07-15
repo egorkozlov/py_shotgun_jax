@@ -10,7 +10,7 @@ import jax.numpy as jnp
 import numpy as onp
 from jax import ops
 
-np = onp
+np = jnp
 
 
 def rouw_nonst_jax(T,sigma_persistent,sigma_init,npts):

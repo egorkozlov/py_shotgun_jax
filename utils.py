@@ -8,7 +8,7 @@ Created on Wed Jul 15 11:38:11 2020
 
 import numpy as onp
 import jax.numpy as jnp
-np = onp
+np = jnp
 
 def compare_arrays(a0,a1,name='',verbose=True,diff=True):
     stats = [np.mean,np.max,np.min,np.median,
@@ -22,9 +22,11 @@ def compare_arrays(a0,a1,name='',verbose=True,diff=True):
     for stat, desc in zip(stats,descs):
         v0 = stat(a0)
         v1 = stat(a1)
-        
-        if diff:
-            print('{} {:.2f}'.format(desc,v1-v0),end = ' ')
-        else:
-            print('{} are {:.2f}, {:.2f}'.format(desc,v0,v1),' ')
+        try:
+            if diff:
+                print('{} {:.2f}'.format(desc,v1-v0),end = ' ')
+            else:
+                print('{} are {:.2f}, {:.2f}'.format(desc,v0,v1),' ')
+        except:
+            print('format problems...')
     print('')

@@ -100,8 +100,7 @@ class Model(object):
             
       
 q = Model(beta=0.95,T=10).ssf[0].mean()
-#from jax import grad
-
-#ds = grad(lambda x : Model(beta=x,T=10).s[0].mean())(0.95)
+from jax import grad
+ds = grad(lambda x : Model(sig_zf=x,T=10).sc[0].mean())(0.95)
 
 
