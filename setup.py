@@ -32,10 +32,10 @@ class Setup(object):
         pmeet_21 = 0.1
         pmeet_28 = 0.2
         pmeet_35 = 0.1        
-        u_lost_divorce = 0.1
+        u_lost_divorce = 0.0
         
-        n_zf = 4
-        n_zm = 3
+        n_zf = 7
+        n_zm = 5
         n_psi = 3
         sig_zf = 0.2
         sig_zf_init = 0.4
@@ -106,7 +106,7 @@ class Setup(object):
         pivot = 0.1
         
         g['na_s'] = 40
-        g['na_c'] = 50
+        g['na_c'] = 100
         g['amin'] = 0.0
         g['amax_s'] = 40.0
         g['amax_c'] = factor_c*g['amax_s']

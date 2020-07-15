@@ -107,33 +107,66 @@ def solve_egm(EV_list,EMU,li,umult,kf,km,agrid,sigma,beta,R,i,wn,wt,psi,last):
         a_implied = (1/R)*(m_implied - li[:,:,None])
         bEV = beta*EV_list[0]
         
+        dm = np.diff(m_implied,axis=0)
         
+        if not np.all(dm>0):
+            
+            print('upper envelope required')    
+            
+            shp = (a_implied.shape[0],a_implied.size // a_implied.shape[0])
+           
+            a_implied_r = a_implied.reshape(shp)
+            c_implied_r = c_implied.reshape(shp)
+            bEV_r = bEV.reshape(shp)
+            li_r = np.broadcast_to(li.squeeze()[:,None],a_implied.shape[1:]).reshape(shp[-1])
+            um_r = np.broadcast_to(umult[None,:],a_implied.shape[1:]).reshape(shp[-1])
+            
+            
+            # split
+            
+            
+            #print(inds)
+            #s = jit(upper_envelope_matrix,static_argnums=(3,5,6,7))
+            #c_r, V_r = s(bEV_r,a_implied_r,c_implied_r,agrid,li_r,um_r,R,sigma)
+            
+            c_r, V_r = upper_envelope_vmap(bEV_r,a_implied_r,c_implied_r,agrid,li_r,um_r,R,sigma)
+            
+            #assert np.allclose(V_r2,V_r)
+            #assert np.allclose(c_r2,c_r)
+            
+            s_r = li_r + R*agrid[:,None] - c_r
+            
+            
+            j_r, wn_r = interp(agrid,s_r) # correspodning indices
+            
+            
+            c, s, V, j, wn = [x.reshape(a_implied.shape)
+                                    for x in (c_r, s_r, V_r, j_r, wn_r)]
         
-        shp = (a_implied.shape[0],a_implied.size // a_implied.shape[0])
-        a_implied_r = a_implied.reshape(shp)
-        c_implied_r = c_implied.reshape(shp)
-        bEV_r = bEV.reshape(shp)
-        li_r = np.broadcast_to(li.squeeze()[:,None],a_implied.shape[1:]).reshape(shp[-1])
-        um_r = np.broadcast_to(umult[None,:],a_implied.shape[1:]).reshape(shp[-1])
-        
-        #s = jit(upper_envelope_matrix,static_argnums=(3,5,6,7))
-        #c_r, V_r = s(bEV_r,a_implied_r,c_implied_r,agrid,li_r,um_r,R,sigma)
-        
-        c_r, V_r = upper_envelope_vmap(bEV_r,a_implied_r,c_implied_r,agrid,li_r,um_r,R,sigma)
-        
-        #assert np.allclose(V_r2,V_r)
-        #assert np.allclose(c_r2,c_r)
-        
-        s_r = li_r + R*agrid[:,None] - c_r
-        
-        
-        j_r, wn_r = interp(agrid,s_r) # correspodning indices
-        
-        
-        c, s, V, j, wn = [x.reshape(a_implied.shape)
-                                for x in (c_r, s_r, V_r, j_r, wn_r)]
-        
-        
+        else:
+            
+            # simple interpolation
+            print('no upper envelope required')
+            
+            a_i_min = a_implied[0,...]
+            a_i_max = a_implied[-1,...]            
+            j_egm, wn_egm = interp_manygrids(a_implied,agrid,axis=0,trim=True)
+            s_egm = agrid[j_egm]*(1-wn_egm) + agrid[j_egm+1]*wn_egm
+            
+            i_above = (agrid[:,None,None] >= a_i_max)
+            i_below = (agrid[:,None,None] <= a_i_min)
+            i_egm = (~i_above) & (~i_below)
+            
+            
+            s = s_egm*i_egm + agrid[-1]*i_above
+            c = R*agrid[:,None,None] + li[:,:,None] - s
+            V = None # this V is not needed 
+            
+            # yeah this runs things again, compare with j_egm
+            j, wn = interp(agrid,s)
+            assert np.all(j[i_egm]==j_egm[i_egm])
+            
+            
         EV_int_list = [(np.take_along_axis(x,j,axis=0)*(1-wn) + \
                         np.take_along_axis(x,j+1,axis=0)*(wn))
                             for x in EV_list]

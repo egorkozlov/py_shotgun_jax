@@ -15,9 +15,9 @@ from jax import vmap
 
 
 
-def upper_envelope_vmap(*args):
+def upper_envelope_vmap(bEV,a_implied,c_implied,agrid,li,um,R,sig):
     uvm = vmap(upper_envelope_one,in_axes=(1,1,1,None,0,0,None,None),out_axes=(1,1))
-    return uvm(*args)
+    return uvm(bEV,a_implied,c_implied,agrid,li,um,R,sig)
 
 
 def upper_envelope_one(bEV,a_implied,c_implied,agrid,li,um,R,sig):
