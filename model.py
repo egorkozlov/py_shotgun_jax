@@ -8,8 +8,10 @@ Created on Mon Jul 13 16:42:24 2020
 
 from couples import iteration_couples
 from singles import iteration_singles
-import jax.numpy as np
+import jax.numpy as jnp
+import numpy as onp
 from timeit import default_timer as dt
+np = jnp
 
 
 
@@ -94,7 +96,7 @@ class Model(object):
             
             
             
-            
+    
             
       
 q = Model(beta=0.95,T=10).ssf[0].mean()

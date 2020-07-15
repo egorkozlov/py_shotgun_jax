@@ -47,8 +47,8 @@ def iteration_singles(model,t,Vnext,MUnext,female):
                 solve_singles_egm(EV_in,EMU,li,agrid,sig,bet,R,i,wn,wt,last) 
     
     
-    print('V egm {}, vfi {}'.format(V.mean(),V_vfi.mean()))
-    print('s egm {}, vfi {}'.format(s.mean(),s_vfi.mean()))
+    #print('V egm {}, vfi {}'.format(V.mean(),V_vfi.mean()))
+    #print('s egm {}, vfi {}'.format(s.mean(),s_vfi.mean()))
     return V, MU, s
 
 

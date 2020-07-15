@@ -6,7 +6,9 @@ Created on Mon Jul 13 12:15:16 2020
 @author: egorkozlov
 """
 
-import jax.numpy as np
+import jax.numpy as jnp
+import numpy as onp
+np = jnp
 from gridvec import VecOnGrid
 
 class Setup(object):
@@ -32,8 +34,8 @@ class Setup(object):
         pmeet_35 = 0.1        
         u_lost_divorce = 0.1
         
-        n_zf = 7
-        n_zm = 5
+        n_zf = 4
+        n_zm = 3
         n_psi = 3
         sig_zf = 0.2
         sig_zf_init = 0.4
@@ -187,7 +189,7 @@ class Setup(object):
         
         self.theta_grid = dict()
         tg = self.theta_grid
-        ntheta = 11
+        ntheta = 7
         ntheta_fine = 121 # preliminary
         theta_min = 0.01
         theta_max = 0.99

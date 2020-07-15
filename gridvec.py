@@ -6,7 +6,9 @@ Created on Mon Oct 28 20:13:57 2019
 @author: egorkozlov
 """
 
-import jax.numpy as np
+import jax.numpy as jnp
+import numpy as onp
+np = jnp
 
 # this is a gridded linear interpolant that uses fast numpy interpolation
 

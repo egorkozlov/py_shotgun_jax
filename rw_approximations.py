@@ -6,9 +6,11 @@ Created on Mon Jul 13 13:38:02 2020
 @author: egorkozlov
 """
 
-import jax.numpy as np
+import jax.numpy as jnp
+import numpy as onp
 from jax import ops
 
+np = onp
 
 
 def rouw_nonst_jax(T,sigma_persistent,sigma_init,npts):
@@ -28,7 +30,7 @@ def rouw_nonst_jax(T,sigma_persistent,sigma_init,npts):
     return X, Pi
 
 def sd_rw(T,sigma_persistent,sigma_init):
-    return np.sqrt(sigma_init**2 + np.arange(0,T)*(sigma_persistent**2))
+    return np.sqrt(sigma_init**2 + np.arange(0,T+1)*(sigma_persistent**2))
   
 
 def rouw_nonst_one(sd0,sd1,npts):
@@ -42,14 +44,25 @@ def rouw_nonst_one(sd0,sd1,npts):
         Z = np.zeros((n,n))
         s0 = slice(0,n-1)
         s1 = slice(1,n)
-        A = ops.index_update(Z,(s0,s0),Pi)
-        B = ops.index_update(Z,(s0,s1),Pi)
-        C = ops.index_update(Z,(s1,s1),Pi)
-        D = ops.index_update(Z,(s1,s0),Pi)
-        Pi0 = pi0*A + (1-pi0)*B + pi0*C + (1-pi0)*D
-        Pi = ops.index_update(Pi0,(slice(1,n-1),None),0.5*Pi0[(slice(1,n-1),None)]) 
-        
-        #assert(np.all(np.abs(np.sum(Pi,axis=1)-1)<1e-5 ))
+        if np is jnp:
+            A = ops.index_update(Z,(s0,s0),Pi)
+            B = ops.index_update(Z,(s0,s1),Pi)
+            C = ops.index_update(Z,(s1,s1),Pi)
+            D = ops.index_update(Z,(s1,s0),Pi)
+            Pi0 = pi0*A + (1-pi0)*B + pi0*C + (1-pi0)*D
+            Pi = ops.index_update(Pi0,(slice(1,n-1),None),0.5*Pi0[(slice(1,n-1),None)])
+        else:
+            A = Z.copy()
+            A[(s0,s0)] = Pi
+            B = Z.copy()
+            B[(s0,s1)] = Pi
+            C = Z.copy()
+            C[(s1,s1)] = Pi
+            D = Z.copy()
+            D[(s1,s0)] = Pi
+            Pi = pi0*A + (1-pi0)*B + pi0*C + (1-pi0)*D
+            Pi[1:(n-1),:] = 0.5*Pi[1:(n-1),:]
+        assert(np.all(np.abs(np.sum(Pi,axis=1)-1)<1e-5 ))
     
     return Pi
 

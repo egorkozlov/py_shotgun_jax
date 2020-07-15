@@ -6,12 +6,17 @@ Created on Mon Jul 13 16:45:56 2020
 @author: egorkozlov
 """
 
-import jax.numpy as np
-from  jax.scipy.special import logsumexp as lse
-from  jax.nn import softmax as sm
+import jax.numpy as jnp
 from jax import jit
+import numpy as onp
 from gridvec import VecOnGrid
+np = jnp
 
+
+from timeit import default_timer as dt
+#def jit(f): return f
+ 
+from utils import compare_arrays
 
 def iteration_couples(model,t,Vnext_list,MUnext_list):
     s = model.setup
@@ -59,77 +64,76 @@ def iteration_couples(model,t,Vnext_list,MUnext_list):
     
     
     
-    
+    t0 = dt()
     #print(EV.shape)
     #solver = jit(solve,static_argnums=[2,3,4,5,6,7,8])
     V_vfi, VF_vfi, VM_vfi, s_vfi = \
                     solve_vfi(money,EV,umult,kf,km,sig,bet,i,wn,wt,sgrid,psi)    
     
+    print('vfi time: {}'.format(dt() - t0))
+    t0 = dt()
+    
     last = (t==model.T)
     V, VF, VM, s, MU = \
                 solve_egm(EV,EMU,li,umult,kf,km,agrid,sig,bet,R,i,wn,wt,psi,last) 
-                
-                
-                
-    print('V egm {}, vfi {}'.format(V.mean(),V_vfi.mean()))
-    print('VF egm {}, vfi {}'.format(VF.mean(),VF_vfi.mean()))
-    print('VM egm {}, vfi {}'.format(VM.mean(),VM_vfi.mean()))
-    print('s egm {}, vfi {}'.format(s.mean(),s_vfi.mean()))   
+    
+    print('egm time: {}'.format(dt() - t0))
+                   
+    #assert np.abs(s_vfi.max() - s.max()) < 1         
+    desc = ['V', 'VF','VM','s']
+    v0 = (V, VF, VM, s)
+    v1 = (V_vfi, VF_vfi, VM_vfi, s_vfi)
+    
+    for d, a0, a1 in zip(desc,v0,v1):
+        name = 'egm vs vfi, {}'.format(d)
+        compare_arrays(a0,a1,name)
+    
     
     return (V,VF,VM), MU, s
 
-
-
-
+from ue import upper_envelope_matrix
+    
 def solve_egm(EV_list,EMU,li,umult,kf,km,agrid,sigma,beta,R,i,wn,wt,psi,last):
     
     if not last:
-        c_prescribed = (beta*R*EMU / umult[None,None,:])**(-1/sigma) 
-        m_implied = c_prescribed + agrid[:,None,None]
+        c_implied = (beta*R*EMU / umult[None,None,:])**(-1/sigma) 
+        m_implied = c_implied + agrid[:,None,None]
         a_implied = (1/R)*(m_implied - li[:,:,None])
+        bEV = beta*EV_list[0]
         
-        a_i_min = a_implied.min(axis=0)#[0,...]
-        a_i_max = a_implied.max(axis=0)#[-1,...]
+        
         
         shp = (a_implied.shape[0],a_implied.size // a_implied.shape[0])
-        a_r_arbitrary = a_implied.reshape(shp)
+        a_implied_r = a_implied.reshape(shp)
+        c_implied_r = c_implied.reshape(shp)
+        bEV_r = bEV.reshape(shp)
+        li_r = np.broadcast_to(li.squeeze()[:,None],a_implied.shape[1:]).reshape(shp[-1])
+        um_r = np.broadcast_to(umult[None,:],a_implied.shape[1:]).reshape(shp[-1])
         
-        a_r_monotonic = a_r_arbitrary
-        a_monotonic = a_r_monotonic.reshape(a_implied.shape)
+        #
+        s = jit(upper_envelope_matrix,static_argnums=(3,5,6,7))
+        c_r, V_r = s(bEV_r,a_implied_r,c_implied_r,agrid,li_r,um_r,R,sigma)
         
         
-        # this runs if a_implied is monotonic
-        j, wn = interp_manygrids(a_monotonic,agrid,axis=0,trim=True)
-        s_egm = agrid[j]*(1-wn) + agrid[j+1]*wn
+        s_r = li_r + R*agrid[:,None] - c_r
         
         
+        j_r, wn_r = interp(agrid,s_r) # correspodning indices
         
-        EV_egm_list = [(np.take_along_axis(x,j,axis=0)*(1-wn) + \
+        
+        c, s, V, j, wn = [x.reshape(a_implied.shape)
+                                for x in (c_r, s_r, V_r, j_r, wn_r)]
+        
+        
+        EV_int_list = [(np.take_along_axis(x,j,axis=0)*(1-wn) + \
                         np.take_along_axis(x,j+1,axis=0)*(wn))
                             for x in EV_list]
-                                                
-                        
-        
-        
-        agrid_r = agrid.reshape((agrid.size,) + a_i_min.ndim*(1,))
-        i_above = (agrid_r >= a_i_max)
-        i_below = (agrid_r <= a_i_min)
-        i_egm = (~i_above) & (~i_below)
-        
+           
+
+        # so we need consumption, savings and values in-the-beginning (net of psi)
+           
         s_below = 0.0
         s_above = agrid[-1]
-        
-        EV_below_list = [x[:1, ...] for x in EV_list]
-        EV_above_list = [x[-1:,...] for x in EV_list]        
-        
-        
-        
-        s = s_egm*i_egm + s_above*i_above # + 0.0*i_below
-        
-        EV_int_list = [x*i_egm + y*i_above + x*i_below for (x,y,z) in 
-                           zip(EV_egm_list,EV_above_list,EV_below_list)]
-        
-        c = R*agrid_r + li[:,:,None] - s
         
         assert np.all(s>=s_below)
         assert np.all(s<=s_above)
@@ -210,8 +214,7 @@ def solve_vfi(money,EV_list,umult,kf,km,sigma,beta,i,wn,wt,sgrid,psi):
     
     
     EV_stretch_list = [(wt[:,None,None]*x[i,:,:] + \
-                              wn[:,None,None]*x[i+1,:,:])
-                        for x in EV_list]
+                              wn[:,None,None]*x[i+1,:,:]) for x in EV_list]
     
     
     
