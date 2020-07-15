@@ -73,9 +73,13 @@ def iteration_couples(model,t,Vnext_list,MUnext_list):
     print('vfi time: {}'.format(dt() - t0))
     t0 = dt()
     
+    
+    
+    segm = jit(solve_egm,static_argnums=(3,4,5,6,7,8,9,10,11,12,13,14))
+    
     last = (t==model.T)
     V, VF, VM, s, MU = \
-                solve_egm(EV,EMU,li,umult,kf,km,agrid,sig,bet,R,i,wn,wt,psi,last) 
+                segm(EV,EMU,li,umult,kf,km,agrid,sig,bet,R,i,wn,wt,psi,last) 
     
     print('egm time: {}'.format(dt() - t0))
                    
@@ -111,6 +115,8 @@ def solve_egm(EV_list,EMU,li,umult,kf,km,agrid,sigma,beta,R,i,wn,wt,psi,last):
         um_r = np.broadcast_to(umult[None,:],a_implied.shape[1:]).reshape(shp[-1])
         
         #
+        
+        
         s = jit(upper_envelope_matrix,static_argnums=(3,5,6,7))
         c_r, V_r = s(bEV_r,a_implied_r,c_implied_r,agrid,li_r,um_r,R,sigma)
         
@@ -132,12 +138,12 @@ def solve_egm(EV_list,EMU,li,umult,kf,km,agrid,sigma,beta,R,i,wn,wt,psi,last):
 
         # so we need consumption, savings and values in-the-beginning (net of psi)
            
-        s_below = 0.0
-        s_above = agrid[-1]
+        #s_below = 0.0
+        #s_above = agrid[-1]
         
-        assert np.all(s>=s_below)
-        assert np.all(s<=s_above)
-        assert np.all(c>=0)
+        #assert np.all(s>=s_below)
+        #assert np.all(s<=s_above)
+        #assert np.all(c>=0)
         
     else:
         
