@@ -332,18 +332,9 @@ def ren_divorce_mat(vf_in,vm_in,vf_out,vm_out,ts):
             i_diagbeloweq*L_up_cs[:,:,None,:] + \
             i_diagabove*L_down_cs[:,:,None,:]
     
-    
-    # this is regular transition "matrix" 
-    # then we append one "to" dimension, that is divorce
-    
-    p_div_bc = np.broadcast_to(p_divorce,(na,ne,nt)) #
-    
-    Mout_ext = np.concatenate((Mout,p_div_bc[...,None]),axis=3)
-    Mout_ext = Mout_ext / Mout_ext.sum(axis=3,keepdims=True)
-    # as a side-effect: the shape will be a bit irregular, that is easier to
-    # track multiplicatoin
-    
-    return Mout_ext
+    Mout = (1-p_divorce[...,None])*(Mout / np.maximum(Mout.sum(axis=3,keepdims=True),1e-8)) # numerical fix...
+    #assert np.allclose((np.sum(Mout,axis=3)+p_divorce),1.0,atol=1e-3)
+    return Mout#, p_divorce
 
     
 '''
@@ -435,7 +426,7 @@ def naive_divorce(model,Vlist,MUlist,M,div_costs=0.0):
     
     #if VCnext.mean() != 0.0: assert False
     
-    i_stay = (VFnext >= VF_div) & (VMnext >= VM_div)
+    i_stay = (VFnext >= VF_div - div_costs) & (VMnext >= VM_div - div_costs)
     i_div = ~i_stay
     
     
@@ -454,15 +445,9 @@ def naive_divorce(model,Vlist,MUlist,M,div_costs=0.0):
     #onecheck = p_divorce*np.ones_like(VFnext) + np.einsum('ijk,ijlk->ijl',np.ones_like(VFnext),trans_mat_theta)
     #assert np.allclose(onecheck,1.0,atol=1e-5)
     
+    ee = lambda q : np.einsum('ijk,ijlk->ijl',q,trans_mat_theta)
     
-    def ee(q):
-        return np.einsum('ijk,ijlk->ijl',q,trans_mat_theta[:,:,:,:-1])
-    
-    # an undesirable thing is that the value of divorce is dependent on the 
-    # current value of theta (for couples) 
-    p_div = trans_mat_theta[:,:,:,-1]
-    
-    VC, VF, VM, MU = [ee(x) + p_div*y for x,y in
+    VC, VF, VM, MU = [ee(x) + p_divorce*y for x,y in
                                   zip((VCnext,VFnext,VMnext,MUnext),
                                       (VC_div,VF_div,VM_div,MU_div))]
                                   
