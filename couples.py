@@ -34,7 +34,7 @@ def iteration_couples(model,t,Vnext_list,MUnext_list):
     
     MUnext, MUnext_sf, MUnext_sm = MUnext_list
     
-    EVC, EVF, EVM, EMU, i_div = \
+    EVCR, EVC, EVF, EVM, EMU = \
     naive_divorce(model,Vnext_list,MUnext_list,s.zfzmpsi_mat[ti].T)
     
     '''
@@ -42,7 +42,7 @@ def iteration_couples(model,t,Vnext_list,MUnext_list):
                            for x in (VCnext,VFnext,VMnext,MUnext)]
     
     '''
-    EV = (EVC, EVF, EVM)
+    EV = (EVCR, EVC, EVF, EVM)
     
     
     
@@ -192,7 +192,7 @@ def solve_egm(EV_list,EMU,li,umult,kf,km,agrid,sigma,beta,R,i,wn,wt,psi,last):
     # this EV should be interpolated as well
     # 
     
-    EV_int, EVF_int, EVM_int = EV_int_list
+    EVR_int, EV_int, EVF_int, EVM_int = EV_int_list
     V = umult[None,None,:]*(c**(1-sigma)/(1-sigma)) + psi + beta*EV_int
     VF = ((kf[None,None,:]*c)**(1-sigma)/(1-sigma)) + psi + beta*EVF_int
     VM = ((km[None,None,:]*c)**(1-sigma)/(1-sigma)) + psi + beta*EVM_int
@@ -266,20 +266,22 @@ def solve_vfi(money,EV_list,umult,kf,km,sigma,beta,i,wn,wt,sgrid,psi):
                                 1e9*consumption_negative[:,:,:,None]
     
     
-    EVs, EVFs, EVMs = EV_stretch_list
+    EVRs, EVs, EVFs, EVMs = EV_stretch_list
     
-    mega_matrix = utility + beta*EVs[None,:,:,:] 
+    mega_matrix = utility + beta*EVRs[None,:,:,:] 
     #print(mega_matrix.shape)
     
     ind_s = mega_matrix.argmax(axis=1)
-    V = np.take_along_axis(mega_matrix,ind_s[:,None,:,:],1)\
-                                                .squeeze(axis=1) + psi
+    #V0 = np.take_along_axis(mega_matrix,ind_s[:,None,:,:],1)\
+    #                                            .squeeze(axis=1) + psi
                                                 
-                                                
+    # this is spoiled V: it has participation constraints things
+                                          
     s = sgrid[ind_s]
     c = money[:,:,None] - s
     
-    V_check = umult[None,None,:]*(c**(1-sigma)/(1-sigma)) + \
+    
+    V = umult[None,None,:]*(c**(1-sigma)/(1-sigma)) + \
                             psi + beta*np.take_along_axis(EVs,ind_s,0)
                 
     VF = ((kf[None,None,:]*c)**(1-sigma)/(1-sigma)) + \
@@ -295,9 +297,15 @@ def solve_vfi(money,EV_list,umult,kf,km,sigma,beta,i,wn,wt,sgrid,psi):
 
 
 
-def ren_divorce_mat(vf_in,vm_in,vf_out,vm_out,ts):    
-    # this is matricised version of the renegotiation routine
-    # for more readable treatment look below
+def ren_divorce_mat(vf_in,vm_in,vf_out,vm_out,ts,thetagrid,return_rescale_factor=True):    
+    
+    # for each [ia,ie] this generates transition matrix over possible future
+    # values of theta (itp) given the current one (it). The indexing is
+    # [ia,ie,it,itp]. The transition matrix does not sum to 1 --- there is a
+    # probability the the couple divorces. Instead, it sums to 1-p_divorce 
+    # over the last dimension.
+    
+    
     
     def L(x): return logit(x/ts)
     
@@ -333,53 +341,19 @@ def ren_divorce_mat(vf_in,vm_in,vf_out,vm_out,ts):
             i_diagabove*L_down_cs[:,:,None,:]
     
     Mout = (1-p_divorce[...,None])*(Mout / np.maximum(Mout.sum(axis=3,keepdims=True),1e-8)) # numerical fix...
-    #assert np.allclose((np.sum(Mout,axis=3)+p_divorce),1.0,atol=1e-3)
-    return Mout#, p_divorce
-
     
-'''
-def ren_divorce_one(vf_in,vm_in,vf_out,vm_out,ts):
-    
-    # this takes one row and returns transition matrix over theta
-    
-    def L(x):
-        return (1 + np.exp(-x/ts))**(-1)
-    
-    nt = vf_in.shape[0]
-    
-    M = np.minimum(vf_in - vf_out, vm_in - vm_out)
-    i_ebs =  np.argmax(M)
-    M_dext = np.concatenate((np.array([-np.inf]),M))
-    M_uext = np.concatenate((M,np.array([-np.inf])))
-    L_up = np.maximum( L(M_dext[1:]) - L(M_dext[:-1]), 0.0)
-    L_up_cs = np.cumsum(L_up)
-    L_down = np.maximum( L(M_uext[:-1]) - L(M_uext[1:]), 0.0)
-    L_down_cs = np.cumsum(L_down[::-1])[::-1] # inverse order cumcum
-    
-    #p_stay = np.sum(L_up)
-    #assert np.allclose(p_stay,np.sum(L_down))
-    
-    ir = np.arange(nt)        
-    
-    it_c = ir[:,None]
-    it_r = ir[None,:]
-    iebs_c = i_ebs*np.ones((1,nt),dtype=np.int16)
-    #iebs_r = i_ebs*np.ones((nt,1),dtype=np.int16)
-    
-    i_irtoebs = (it_r <= iebs_c) & (it_r > it_c)
-    i_ebstoir = (it_r >= iebs_c) & (it_r < it_c)
-    i_diagbeloweq = (it_r <= iebs_c) & (it_r == it_c)
-    i_diagabove = (it_r > iebs_c) & (it_r == it_c)
-    
-    Mout  = i_irtoebs*L_up[None,:] + i_ebstoir*L_down[None,:] + \
-            i_diagbeloweq*L_up_cs[None,:] + \
-            i_diagabove*L_down_cs[None,:]
-            
-    #assert np.ptp(np.sum(Mout,axis=1))<1e-3 
-    return Mout
-'''
-    
-    
+    if not return_rescale_factor:
+        return Mout
+    else:
+        # here we build the rescale factor corresponding the the grid
+        # this allows to compute correct value function for couples problem:
+        # we should not allow decision weights to fall
+        tt = thetagrid
+        ttc = tt[:,None]
+        ttr = tt[None,:]
+        factor = np.maximum(ttc/ttr,(1-ttc)/(1-ttr))[None,None,:,:]
+        return Mout, factor
+        
 
 def naive_divorce(model,Vlist,MUlist,M,div_costs=0.0):
     # this performs integration with a naive divorce
@@ -408,61 +382,33 @@ def naive_divorce(model,Vlist,MUlist,M,div_costs=0.0):
     MUF_div = (wt_f[:,None]*(0.5*MUnext_sf)[i_f,:] + wn_f[:,None]*(0.5*MUnext_sf)[i_f+1,:])[:,izf][:,:,None]
     MUM_div = (wt_m[:,None]*(0.5*MUnext_sm)[i_m,:] + wn_m[:,None]*(0.5*MUnext_sm)[i_m+1,:])[:,izm][:,:,None]
     
-    
-    # ebs:
-    
-    #vv = lambda f : vmap(f,in_axes=(0,0,0,0,None),out_axes=0)
-    #MM = vv(vv(ren_divorce_one))(VFnext,VMnext,VF_div,VM_div,0.1)
-    trans_mat_theta = ren_divorce_mat(VFnext,VMnext,VF_div,VM_div,0.01)
-    p_stay = trans_mat_theta.sum(axis=3)
-    p_divorce = 1.0-p_stay
-    
-    
-    #print(np.ptp(p_stay,axis=2).max())
-    
-    #assert np.allclose(MMM,MM)
-    
-    
-    
-    #if VCnext.mean() != 0.0: assert False
-    
-    i_stay = (VFnext >= VF_div - div_costs) & (VMnext >= VM_div - div_costs)
-    i_div = ~i_stay
-    
-    
-    
-    
     t = s.theta_grid_coarse[None,None,:]
     VC_div = t*VF_div + (1-t)*VM_div
     MU_div = t*MUF_div + (1-t)*MUM_div
 
     
-    VC0, VF0, VM0, MU0 = [i_stay*x + i_div*y for x,y in
-                                  zip((VCnext,VFnext,VMnext,MUnext),
-                                      (VC_div,VF_div,VM_div,MU_div))]
+    # get transition probability over theta
+    trans_mat_theta, r_factor = ren_divorce_mat(VFnext,VMnext,VF_div,VM_div,0.01,s.theta_grid_coarse)
+    p_stay = trans_mat_theta.sum(axis=3)
+    p_divorce = 1.0-p_stay
     
-    
-    #onecheck = p_divorce*np.ones_like(VFnext) + np.einsum('ijk,ijlk->ijl',np.ones_like(VFnext),trans_mat_theta)
-    #assert np.allclose(onecheck,1.0,atol=1e-5)
-    
+    # transition for divorce
     ee = lambda q : np.einsum('ijk,ijlk->ijl',q,trans_mat_theta)
+    
+    ee_r = lambda q : np.einsum('ijk,ijlk->ijl',q,r_factor*trans_mat_theta)
+    # adds rescaling 
+    VCR = ee_r(VCnext) + p_divorce*VC_div
     
     VC, VF, VM, MU = [ee(x) + p_divorce*y for x,y in
                                   zip((VCnext,VFnext,VMnext,MUnext),
                                       (VC_div,VF_div,VM_div,MU_div))]
-                                  
     
-    #print(np.max(VC0-VC))
-    #print(np.max(VF0-VF))
-    #print(np.max(VM0-VM))
-    
-    #if VCnext.mean() != 0.0: assert False
-    
+    # transition over exogenous state
     dd = lambda x : np.einsum('ijk,jl->ilk',x,M)
     
-    EVC, EVF, EVM, EMU = [dd(x) for x in [VC, VF, VM, MU]]
+    EVCR, EVC, EVF, EVM, EMU = [dd(x) for x in [VCR, VC, VF, VM, MU]]
     
     #assert np.all(np.diff(EVC,axis=0)>=0)
     
-    return EVC, EVF, EVM, EMU, i_div
+    return EVCR, EVC, EVF, EVM, EMU
 

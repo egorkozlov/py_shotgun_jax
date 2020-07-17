@@ -103,12 +103,27 @@ t0 = dt()
 #q = Model(beta=0.95,T=10).ssf[0].mean()
 from jax import value_and_grad, jacfwd, jacrev
 
+
+
+
 ff = lambda x : Model(sig_zf=x[0],sig_zm=x[1],sig_zf_init=x[2],sig_zm_init=x[3],T=10).sc[0].mean()
 
 pt = np.array([0.2,0.2,0.4,0.4])
+
+'''
+val0 = ff(pt)
+print('value computed for {} sec'.format(dt() - t0))
+print('value 0 is {}'.format(val0))
+t0 = dt()
+'''
+
+
+
+
 val, grad = value_and_grad(ff)(pt)
 print('value and grad computed for {} sec'.format(dt() - t0))
 print('value is {}, grad is {}'.format(val,grad))
+
 
 '''
 t0 = dt()
