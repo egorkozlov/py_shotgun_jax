@@ -35,7 +35,7 @@ class Setup(object):
         u_lost_divorce = 0.0
         
         n_zf = 7
-        n_zm = 5
+        n_zm = 7
         n_psi = 3
         sig_zf = 0.2
         sig_zf_init = 0.4
@@ -186,7 +186,7 @@ class Setup(object):
         
         self.theta_grid = dict()
         tg = self.theta_grid
-        ntheta = 7
+        ntheta = 21
         ntheta_fine = 121 # preliminary
         theta_min = 0.01
         theta_max = 0.99

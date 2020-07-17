@@ -7,10 +7,11 @@ Created on Mon Jul 13 16:45:56 2020
 """
 
 import jax.numpy as jnp
-from jax import jit
+from jax import jit, vmap
 import numpy as onp
 from gridvec import VecOnGrid
 np = jnp
+from jax.nn import sigmoid as logit
 
 
 from timeit import default_timer as dt
@@ -146,7 +147,7 @@ def solve_egm(EV_list,EMU,li,umult,kf,km,agrid,sigma,beta,R,i,wn,wt,psi,last):
         
         # yeah this runs things again, compare with j_egm
         j_r, wn_r = interp(agrid,s_r)
-        assert np.all(j_r[i_egm]==j_egm[i_egm])
+        #assert np.all(j_r[i_egm]==j_egm[i_egm])
             
         # this makes the function un-jittable
         if np.any(dm<=0):
@@ -240,7 +241,7 @@ def interp_manygrids(grids,xs,axis=0,return_wnext=True,trim=False):
                      )
     #assert False
     wnext = (xs_r - grid_j)/(grid_jp - grid_j)
-    assert wnext.shape == j.shape
+    #assert wnext.shape == j.shape
     return j, (wnext if return_wnext else 1-wnext)
 
 
@@ -287,10 +288,107 @@ def solve_vfi(money,EV_list,umult,kf,km,sigma,beta,i,wn,wt,sgrid,psi):
                             psi + beta*np.take_along_axis(EVMs,ind_s,0)
                 
                 
-    assert np.allclose(V_check,V,atol=1e-5)
+    #assert np.allclose(V_check,V,atol=1e-5)
     
     return V, VF, VM, s
 
+
+
+
+def ren_divorce_mat(vf_in,vm_in,vf_out,vm_out,ts):    
+    # this is matricised version of the renegotiation routine
+    # for more readable treatment look below
+    
+    def L(x): return logit(x/ts)
+    
+    na, ne, nt = vf_in.shape
+    
+    M = np.minimum(vf_in - vf_out, vm_in - vm_out)
+    i_ebs =  np.argmax(M,axis=2)
+    M_dext = np.concatenate((-np.inf*np.ones((na,ne,1)),M),axis=2)
+    M_uext = np.concatenate((M,-np.inf*np.ones((na,ne,1))),axis=2)
+    L_up = np.maximum( L(M_dext[:,:,1:]) - L(M_dext[:,:,:-1]), 0.0)
+    L_up_cs = np.cumsum(L_up,axis=2)
+    L_down = np.maximum( L(M_uext[:,:,:-1]) - L(M_uext[:,:,1:]), 0.0)
+    L_down_cs = np.cumsum(L_down[:,:,::-1],axis=2)[:,:,::-1] # inverse order cumcum
+    
+    p_divorce = (1 - L(M.max(axis=2)))[:,:,None]
+    #p_stay = np.sum(L_up)
+    #assert np.allclose(p_stay,np.sum(L_down))
+    
+    ir = np.broadcast_to(np.arange(nt)[None,None,:],M.shape)    
+    
+    it_c = ir[:,:,:,None]
+    it_r = ir[:,:,None,:]
+    iebs_c = i_ebs[:,:,None,None]
+    #iebs_r = i_ebs*np.ones((nt,1),dtype=np.int16)
+    
+    i_irtoebs = (it_r <= iebs_c) & (it_r > it_c)
+    i_ebstoir = (it_r >= iebs_c) & (it_r < it_c)
+    i_diagbeloweq = (it_r <= iebs_c) & (it_r == it_c)
+    i_diagabove = (it_r > iebs_c) & (it_r == it_c)
+    
+    Mout  = i_irtoebs*L_up[:,:,None,:] + i_ebstoir*L_down[:,:,None,:] + \
+            i_diagbeloweq*L_up_cs[:,:,None,:] + \
+            i_diagabove*L_down_cs[:,:,None,:]
+    
+    
+    # this is regular transition "matrix" 
+    # then we append one "to" dimension, that is divorce
+    
+    p_div_bc = np.broadcast_to(p_divorce,(na,ne,nt)) #
+    
+    Mout_ext = np.concatenate((Mout,p_div_bc[...,None]),axis=3)
+    Mout_ext = Mout_ext / Mout_ext.sum(axis=3,keepdims=True)
+    # as a side-effect: the shape will be a bit irregular, that is easier to
+    # track multiplicatoin
+    
+    return Mout_ext
+
+    
+'''
+def ren_divorce_one(vf_in,vm_in,vf_out,vm_out,ts):
+    
+    # this takes one row and returns transition matrix over theta
+    
+    def L(x):
+        return (1 + np.exp(-x/ts))**(-1)
+    
+    nt = vf_in.shape[0]
+    
+    M = np.minimum(vf_in - vf_out, vm_in - vm_out)
+    i_ebs =  np.argmax(M)
+    M_dext = np.concatenate((np.array([-np.inf]),M))
+    M_uext = np.concatenate((M,np.array([-np.inf])))
+    L_up = np.maximum( L(M_dext[1:]) - L(M_dext[:-1]), 0.0)
+    L_up_cs = np.cumsum(L_up)
+    L_down = np.maximum( L(M_uext[:-1]) - L(M_uext[1:]), 0.0)
+    L_down_cs = np.cumsum(L_down[::-1])[::-1] # inverse order cumcum
+    
+    #p_stay = np.sum(L_up)
+    #assert np.allclose(p_stay,np.sum(L_down))
+    
+    ir = np.arange(nt)        
+    
+    it_c = ir[:,None]
+    it_r = ir[None,:]
+    iebs_c = i_ebs*np.ones((1,nt),dtype=np.int16)
+    #iebs_r = i_ebs*np.ones((nt,1),dtype=np.int16)
+    
+    i_irtoebs = (it_r <= iebs_c) & (it_r > it_c)
+    i_ebstoir = (it_r >= iebs_c) & (it_r < it_c)
+    i_diagbeloweq = (it_r <= iebs_c) & (it_r == it_c)
+    i_diagabove = (it_r > iebs_c) & (it_r == it_c)
+    
+    Mout  = i_irtoebs*L_up[None,:] + i_ebstoir*L_down[None,:] + \
+            i_diagbeloweq*L_up_cs[None,:] + \
+            i_diagabove*L_down_cs[None,:]
+            
+    #assert np.ptp(np.sum(Mout,axis=1))<1e-3 
+    return Mout
+'''
+    
+    
 
 def naive_divorce(model,Vlist,MUlist,M,div_costs=0.0):
     # this performs integration with a naive divorce
@@ -313,37 +411,73 @@ def naive_divorce(model,Vlist,MUlist,M,div_costs=0.0):
     
     ie, izf, izm, ipsi = s.all_indices()
     
-    VF_div = (wt_f[:,None]*VFsingle[i_f,:] + wn_f[:,None]*VFsingle[i_f+1,:])[:,izf][:,:,None]
-    VM_div = (wt_m[:,None]*VMsingle[i_m,:] + wn_m[:,None]*VMsingle[i_m+1,:])[:,izm][:,:,None]
+    VF_div = (wt_f[:,None]*VFsingle[i_f,:] + wn_f[:,None]*VFsingle[i_f+1,:])[:,izf][:,:,None] - div_costs
+    VM_div = (wt_m[:,None]*VMsingle[i_m,:] + wn_m[:,None]*VMsingle[i_m+1,:])[:,izm][:,:,None] - div_costs
     
     MUF_div = (wt_f[:,None]*(0.5*MUnext_sf)[i_f,:] + wn_f[:,None]*(0.5*MUnext_sf)[i_f+1,:])[:,izf][:,:,None]
     MUM_div = (wt_m[:,None]*(0.5*MUnext_sm)[i_m,:] + wn_m[:,None]*(0.5*MUnext_sm)[i_m+1,:])[:,izm][:,:,None]
     
-    i_stay = (VFnext >= VF_div - div_costs) & (VMnext >= VM_div - div_costs)
+    
+    # ebs:
+    
+    #vv = lambda f : vmap(f,in_axes=(0,0,0,0,None),out_axes=0)
+    #MM = vv(vv(ren_divorce_one))(VFnext,VMnext,VF_div,VM_div,0.1)
+    trans_mat_theta = ren_divorce_mat(VFnext,VMnext,VF_div,VM_div,0.01)
+    p_stay = trans_mat_theta.sum(axis=3)
+    p_divorce = 1.0-p_stay
+    
+    
+    #print(np.ptp(p_stay,axis=2).max())
+    
+    #assert np.allclose(MMM,MM)
+    
+    
+    
+    #if VCnext.mean() != 0.0: assert False
+    
+    i_stay = (VFnext >= VF_div) & (VMnext >= VM_div)
     i_div = ~i_stay
+    
+    
+    
     
     t = s.theta_grid_coarse[None,None,:]
     VC_div = t*VF_div + (1-t)*VM_div
     MU_div = t*MUF_div + (1-t)*MUM_div
+
     
-    VC, VF, VM, MU = [i_stay*x + (i_div)*y for x,y in
+    VC0, VF0, VM0, MU0 = [i_stay*x + i_div*y for x,y in
                                   zip((VCnext,VFnext,VMnext,MUnext),
                                       (VC_div,VF_div,VM_div,MU_div))]
     
-    dot = jit(dot_3d)
     
-    EVC, EVF, EVM, EMU = [dot(x,M) for x in [VC, VF, VM, MU]]
+    #onecheck = p_divorce*np.ones_like(VFnext) + np.einsum('ijk,ijlk->ijl',np.ones_like(VFnext),trans_mat_theta)
+    #assert np.allclose(onecheck,1.0,atol=1e-5)
+    
+    
+    def ee(q):
+        return np.einsum('ijk,ijlk->ijl',q,trans_mat_theta[:,:,:,:-1])
+    
+    # an undesirable thing is that the value of divorce is dependent on the 
+    # current value of theta (for couples) 
+    p_div = trans_mat_theta[:,:,:,-1]
+    
+    VC, VF, VM, MU = [ee(x) + p_div*y for x,y in
+                                  zip((VCnext,VFnext,VMnext,MUnext),
+                                      (VC_div,VF_div,VM_div,MU_div))]
+                                  
+    
+    #print(np.max(VC0-VC))
+    #print(np.max(VF0-VF))
+    #print(np.max(VM0-VM))
+    
+    #if VCnext.mean() != 0.0: assert False
+    
+    dd = lambda x : np.einsum('ijk,jl->ilk',x,M)
+    
+    EVC, EVF, EVM, EMU = [dd(x) for x in [VC, VF, VM, MU]]
+    
+    #assert np.all(np.diff(EVC,axis=0)>=0)
+    
     return EVC, EVF, EVM, EMU, i_div
-    
-    
 
-def dot_3d(V,M):
-    # this computes array Q, such that
-    # Q[:,:,i] = V[:,:,i]*M for each i in V.shape[2]
-    
-    q_shape = (V.shape[0],M.shape[1],V.shape[2])
-    Q = np.zeros(q_shape[:-1]+(0,),dtype=V.dtype)
-    
-    for k in range(V.shape[-1]):
-        Q = np.concatenate((Q,np.dot(V[:,:,k],M)[:,:,None]),axis=2)
-    return Q
