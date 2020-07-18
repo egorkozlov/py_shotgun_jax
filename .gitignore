@@ -124,3 +124,10 @@ dmypy.json
 .pyre/
 
 .DS_Store
+*~
+*.sh
+*.pkl
+*.pdf
+*.xls
+*.xlsx
+*.eps
