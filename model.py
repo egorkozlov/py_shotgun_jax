@@ -110,12 +110,14 @@ ff = lambda x : Model(sig_zf=x[0],sig_zm=x[1],sig_zf_init=x[2],sig_zm_init=x[3],
 
 pt = np.array([0.2,0.2,0.4,0.4])
 
-'''
-val0 = ff(pt)
+import jax.random as r
+key = r.PRNGKey(123)
+s = r.uniform(key,(5,4))
+for j in range(5): val0 = ff(s[j,:]*pt)
 print('value computed for {} sec'.format(dt() - t0))
 print('value 0 is {}'.format(val0))
 t0 = dt()
-'''
+
 
 
 
