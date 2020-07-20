@@ -158,8 +158,8 @@ def solve_egm(EV_list,EMU,li,umult,kf,km,agrid,sigma,beta,R,i,wn,wt,psi,last):
                 [x[:,ind] for x in (bEV_r,a_implied_r,c_implied_r)]
             li_r_ue, um_r_ue = [x[ind] for x in (li_r,um_r)]
             
-            
-            c_r_ue, V_r_ue = upper_envelope_matrix(bEV_r_ue,a_implied_r_ue,c_implied_r_ue,agrid,li_r_ue,um_r_ue,R,sigma)
+            uem = jit(upper_envelope_matrix,static_argnums=[3,6,7])
+            c_r_ue, V_r_ue = uem(bEV_r_ue,a_implied_r_ue,c_implied_r_ue,agrid,li_r_ue,um_r_ue,R,sigma)
             #assert np.allclose(V_r2,V_r)
             #assert np.allclose(c_r2,c_r)
             

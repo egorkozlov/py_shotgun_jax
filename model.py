@@ -15,8 +15,6 @@ np = jnp
 
 
 
-
-
 from setup import Setup
 class Model(object):
     def __init__(self,**kwagrs):
@@ -101,7 +99,7 @@ class Model(object):
     
 t0 = dt()
 #q = Model(beta=0.95,T=10).ssf[0].mean()
-from jax import value_and_grad, jacfwd, jacrev
+from jax import value_and_grad, jacfwd, jacrev, jit
 
 
 
@@ -120,12 +118,13 @@ t0 = dt()
 
 
 
+'''
 
 
 val, grad = value_and_grad(ff)(pt)
 print('value and grad computed for {} sec'.format(dt() - t0))
 print('value is {}, grad is {}'.format(val,grad))
-
+'''
 
 '''
 t0 = dt()
