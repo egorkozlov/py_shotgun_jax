@@ -44,6 +44,8 @@ class Setup(object):
         sig_psi = 0.1
         sig_psi_init = 0.8
         
+        taste_shock = 0.05
+        
         
         
         

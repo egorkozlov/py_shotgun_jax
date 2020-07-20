@@ -15,7 +15,6 @@ from jax.nn import sigmoid as logit
 
 
 from timeit import default_timer as dt
-taste_shock = 0.05
 #def jit(f): return f
  
 from utils import compare_arrays, logit_expectation_conditional_above
@@ -51,7 +50,7 @@ def iteration_couples(model,t,Vnext_list,MUnext_list):
     
     
     i, wn, wt, sgrid = \
-    s.v_sgrid_c.i, s.v_sgrid_c.wnext, s.v_sgrid_c.wthis, s.v_sgrid_c.val
+        s.v_sgrid_c.i, s.v_sgrid_c.wnext, s.v_sgrid_c.wthis, s.v_sgrid_c.val
 
     wf = np.exp(s.zfzmpsi[ti][:,0])
     wm = np.exp(s.zfzmpsi[ti][:,1])
@@ -119,7 +118,7 @@ def solve_egm(EV_list,EMU,li,umult,kf,km,agrid,sigma,beta,R,i,wn,wt,psi,last):
         
         a_i_min = a_implied_r.min(axis=0,keepdims=True)
         a_i_max = a_implied_r.max(axis=0,keepdims=True)           
-        j_egm, wn_egm = interp_manygrids(a_implied_r,agrid,axis=0,trim=True)
+        j_egm, wn_egm = interp_manygrids(a_implied_r,agrid)
         s_egm = agrid[j_egm]*(1-wn_egm) + agrid[j_egm+1]*wn_egm
         i_above = (agrid[:,None] >= a_i_max)
         i_below = (agrid[:,None] <= a_i_min)
@@ -183,8 +182,10 @@ def solve_egm(EV_list,EMU,li,umult,kf,km,agrid,sigma,beta,R,i,wn,wt,psi,last):
 
 
 
-
-def interp(grid,xnew,return_wnext=True,trim=False):    
+@jit
+def interp(grid,xnew):    
+    return_wnext=True
+    trim=True
     # this finds grid positions and weights for performing linear interpolation
     # this implementation uses numpy
     
@@ -196,8 +197,12 @@ def interp(grid,xnew,return_wnext=True,trim=False):
     return j, (wnext if return_wnext else 1-wnext) 
 
 
-
-def interp_manygrids(grids,xs,axis=0,return_wnext=True,trim=False):
+jit_ig = lambda f : jit(f,static_argnums=[4,5])
+@jit
+def interp_manygrids(grids,xs):
+    axis=0
+    #trim=False
+    
     # this routine interpolates xs on many grids, defined along 
     # the axis in an array grids. (so for axis=0 grids are 
     #grids[:,i,j,k] for all i, j, k)
@@ -225,10 +230,10 @@ def interp_manygrids(grids,xs,axis=0,return_wnext=True,trim=False):
     #assert False
     wnext = (xs_r - grid_j)/(grid_jp - grid_j)
     #assert wnext.shape == j.shape
-    return j, (wnext if return_wnext else 1-wnext)
+    return j, wnext
         
 
-def naive_divorce(model,Vlist,MUlist,M,div_costs=0.0):
+def naive_divorce(model,Vlist,MUlist,M):
     # this performs integration with a naive divorce
     
     s = model.setup
@@ -247,6 +252,8 @@ def naive_divorce(model,Vlist,MUlist,M,div_costs=0.0):
     v_a_mal = VecOnGrid(s.agrid_s,assets_divorce_mal)
     i_m, wn_m, wt_m = v_a_mal.i, v_a_mal.wnext, v_a_mal.wthis
     
+    div_costs = s.u_lost_divorce
+    
     ie, izf, izm, ipsi = s.all_indices()
     
     VF_div = (wt_f[:,None]*VFsingle[i_f,:] + wn_f[:,None]*VFsingle[i_f+1,:])[:,izf][:,:,None] - div_costs
@@ -261,7 +268,7 @@ def naive_divorce(model,Vlist,MUlist,M,div_costs=0.0):
 
     
     # get transition probability over theta
-    trans_mat_theta, r_factor, e_shock = ren_divorce_mat(VFnext,VMnext,VF_div,VM_div,taste_shock,s.theta_grid_coarse)
+    trans_mat_theta, r_factor, e_shock = ren_divorce_mat(VFnext,VMnext,VF_div,VM_div,s.taste_shock,s.theta_grid_coarse)
     p_stay = trans_mat_theta.sum(axis=3)
     p_divorce = 1.0-p_stay
     
@@ -279,12 +286,10 @@ def naive_divorce(model,Vlist,MUlist,M,div_costs=0.0):
                                   zip((VCnext,VFnext,VMnext,MUnext),
                                       (VC_div+es,VF_div+es,VM_div+es,MU_div))]
     
-    # transition over exogenous state
     dd = lambda x : np.einsum('ijk,jl->ilk',x,M)
     
     EVCR, EVC, EVF, EVM, EMU = [dd(x) for x in [VCR, VC, VF, VM, MU]]
     
-    #assert np.all(np.diff(EVC,axis=0)>=0)
     
     return EVCR, EVC, EVF, EVM, EMU
 
@@ -342,7 +347,7 @@ def solve_vfi(money,EV_list,umult,kf,km,sigma,beta,i,wn,wt,sgrid,psi):
 
 jit_rdm = lambda f : jit(f,static_argnums=[4,5])
 @jit_rdm
-def ren_divorce_mat(vf_in,vm_in,vf_out,vm_out,ts,thetagrid):    
+def ren_divorce_mat(vf_in,vm_in,vf_out,vm_out,ts,thetagrid):#,return_rescale_factor=True):    
     
     # for each [ia,ie] this generates transition matrix over possible future
     # values of theta (itp) given the current one (it). The indexing is

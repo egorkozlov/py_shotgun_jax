@@ -93,7 +93,7 @@ def solve_singles_egm(EV,EMU,li,agrid,sigma,beta,R,i,wn,wt,last):
         a_i_max = a_implied[-1,...]
         
         
-        j, wn = interp_manygrids(a_implied,agrid,axis=0,trim=True)
+        j, wn = interp_manygrids(a_implied,agrid)
         s_egm = agrid[j]*(1-wn) + agrid[j+1]*wn
         
         
