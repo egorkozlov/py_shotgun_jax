@@ -26,6 +26,8 @@ def iteration_couples(model,t,Vnext_list,MUnext_list):
     R = s.R
     # compute EV
     
+    t0 = dt()
+    
     ti = t if t < model.T else model.T-1
     
     
@@ -34,8 +36,22 @@ def iteration_couples(model,t,Vnext_list,MUnext_list):
     
     MUnext, MUnext_sf, MUnext_sm = MUnext_list
     
+    _, izf, izm, _ = s.all_indices()
+    
+    
     EVCR, EVC, EVF, EVM, EMU = \
-    naive_divorce(model,Vnext_list,MUnext_list,s.zfzmpsi_mat[ti].T)
+                    naive_divorce(Vnext_list,
+                                  MUnext_list,
+                                  s.zfzmpsi_mat[ti].T,
+                                  s.agrid_s,
+                                  s.agrid_c,
+                                  s.theta_grid_coarse,
+                                  s.taste_shock,
+                                  s.u_lost_divorce,
+                                  izf,
+                                  izm)
+
+    
     
     '''
     EVC, EVF, EVM, EMU  = [dot(x,s.zfzmpsi_mat[ti].T) \
@@ -47,6 +63,7 @@ def iteration_couples(model,t,Vnext_list,MUnext_list):
     
     
     agrid = s.agrid_c
+    
     
     
     i, wn, wt, sgrid = \
@@ -62,6 +79,7 @@ def iteration_couples(model,t,Vnext_list,MUnext_list):
     umult = s.u_mult(s.theta_grid_coarse)
     kf, km = s.c_mult(s.theta_grid_coarse)
     
+    print('div time: {}'.format(dt() - t0))
     
 
     t0 = dt()
@@ -197,7 +215,6 @@ def interp(grid,xnew):
     return j, (wnext if return_wnext else 1-wnext) 
 
 
-jit_ig = lambda f : jit(f,static_argnums=[4,5])
 @jit
 def interp_manygrids(grids,xs):
     axis=0
@@ -233,28 +250,27 @@ def interp_manygrids(grids,xs):
     return j, wnext
         
 
-def naive_divorce(model,Vlist,MUlist,M):
+jit_nd = lambda f : jit(f,static_argnums=[3,4,5,6,7,8,9])
+@jit_nd
+def naive_divorce(Vlist,MUlist,M,agrid_s,agrid_c,thetagrid,taste_shock,div_costs,izf,izm):
     # this performs integration with a naive divorce
     
-    s = model.setup
     
     VCnext, VFnext, VMnext, VFsingle, VMsingle = Vlist
     
     MUnext, MUnext_sf, MUnext_sm = MUlist
     
     
-    assets_divorce_fem = 0.5*s.agrid_c
-    assets_divorce_mal = 0.5*s.agrid_c
+    assets_divorce_fem = 0.5*agrid_c
+    assets_divorce_mal = 0.5*agrid_c
     
-    v_a_fem = VecOnGrid(s.agrid_s,assets_divorce_fem)
+    v_a_fem = VecOnGrid(agrid_s,assets_divorce_fem)
     i_f, wn_f, wt_f = v_a_fem.i, v_a_fem.wnext, v_a_fem.wthis
     
-    v_a_mal = VecOnGrid(s.agrid_s,assets_divorce_mal)
+    v_a_mal = VecOnGrid(agrid_s,assets_divorce_mal)
     i_m, wn_m, wt_m = v_a_mal.i, v_a_mal.wnext, v_a_mal.wthis
     
-    div_costs = s.u_lost_divorce
     
-    ie, izf, izm, ipsi = s.all_indices()
     
     VF_div = (wt_f[:,None]*VFsingle[i_f,:] + wn_f[:,None]*VFsingle[i_f+1,:])[:,izf][:,:,None] - div_costs
     VM_div = (wt_m[:,None]*VMsingle[i_m,:] + wn_m[:,None]*VMsingle[i_m+1,:])[:,izm][:,:,None] - div_costs
@@ -262,13 +278,13 @@ def naive_divorce(model,Vlist,MUlist,M):
     MUF_div = (wt_f[:,None]*(0.5*MUnext_sf)[i_f,:] + wn_f[:,None]*(0.5*MUnext_sf)[i_f+1,:])[:,izf][:,:,None]
     MUM_div = (wt_m[:,None]*(0.5*MUnext_sm)[i_m,:] + wn_m[:,None]*(0.5*MUnext_sm)[i_m+1,:])[:,izm][:,:,None]
     
-    t = s.theta_grid_coarse[None,None,:]
+    t = thetagrid
     VC_div = t*VF_div + (1-t)*VM_div
     MU_div = t*MUF_div + (1-t)*MUM_div
 
     
     # get transition probability over theta
-    trans_mat_theta, r_factor, e_shock = ren_divorce_mat(VFnext,VMnext,VF_div,VM_div,s.taste_shock,s.theta_grid_coarse)
+    trans_mat_theta, r_factor, e_shock = ren_divorce_mat(VFnext,VMnext,VF_div,VM_div,taste_shock,thetagrid)
     p_stay = trans_mat_theta.sum(axis=3)
     p_divorce = 1.0-p_stay
     
