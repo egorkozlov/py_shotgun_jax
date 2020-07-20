@@ -35,8 +35,8 @@ class Setup(object):
         u_lost_divorce = 0.0
         
         n_zf = 7
-        n_zm = 7
-        n_psi = 3
+        n_zm = 5
+        n_psi = 15
         sig_zf = 0.2
         sig_zf_init = 0.4
         sig_zm = 0.2

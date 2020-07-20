@@ -254,7 +254,7 @@ jit_nd = lambda f : jit(f,static_argnums=[3,4,5,6,7,8,9])
 @jit_nd
 def naive_divorce(Vlist,MUlist,M,agrid_s,agrid_c,thetagrid,taste_shock,div_costs,izf,izm):
     # this performs integration with a naive divorce
-    
+    #t0 = dt()
     
     VCnext, VFnext, VMnext, VFsingle, VMsingle = Vlist
     
@@ -282,31 +282,77 @@ def naive_divorce(Vlist,MUlist,M,agrid_s,agrid_c,thetagrid,taste_shock,div_costs
     VC_div = t*VF_div + (1-t)*VM_div
     MU_div = t*MUF_div + (1-t)*MUM_div
 
+    #print('interpolation took {:.2f}'.format(dt() - t0))
+    #t0 = dt()
     
     # get transition probability over theta
     trans_mat_theta, r_factor, e_shock = ren_divorce_mat(VFnext,VMnext,VF_div,VM_div,taste_shock,thetagrid)
-    p_stay = trans_mat_theta.sum(axis=3)
-    p_divorce = 1.0-p_stay
+    p_stay = trans_mat_theta[:,:,0:1,:].sum(axis=3) # probability does not depend on current state
+    p_divorce = 1.0-p_stay[:,:,0:1]
+    
+    
     
     # transition for divorce
-    ee = lambda q : np.einsum('ijk,ijlk->ijl',q,trans_mat_theta)
+    #ee = lambda q : np.einsum('ijk,ijlk->ijl',q,trans_mat_theta)
+    ee = lambda q : np.matmul(q[:,:,None,:],
+                              np.swapaxes(trans_mat_theta,3,2))\
+                              .squeeze(axis=2)
+                                                        
     
-    ee_r = lambda q : np.einsum('ijk,ijlk->ijl',q,r_factor*trans_mat_theta)
+    #assert False
+    #ee_r = lambda q : np.einsum('ijk,ijlk->ijl',q,r_factor*trans_mat_theta)
+    ee_r = lambda q : np.matmul(q[:,:,None,:],
+                                np.swapaxes(r_factor*trans_mat_theta,3,2))\
+                                .squeeze(axis=2)
     # adds rescaling 
+    
+    
+    #print('logit matrices took {:.2f}'.format(dt() - t0))
+    #t0 = dt()
+    
     
     es = e_shock[:,:,None]
     
     VCR = ee_r(VCnext) + p_divorce*(VC_div+es)
     
-    VC, VF, VM, MU = [ee(x) + p_divorce*y for x,y in
-                                  zip((VCnext,VFnext,VMnext,MUnext),
-                                      (VC_div+es,VF_div+es,VM_div+es,MU_div))]
+    #print('einsum 0 took {:.2f}'.format(dt() - t0))
+    #t0 = dt()
     
-    dd = lambda x : np.einsum('ijk,jl->ilk',x,M)
+    
+    pdes = p_divorce*es
+    VC, VF, VM, MU = [ee(x) + p_divorce*y + z for x,y, z in
+                                      zip((VCnext,VFnext,VMnext,MUnext),
+                                          (VC_div,VF_div,VM_div,MU_div),
+                                          (pdes,pdes,pdes,0.0))]
+    
+    
+    dd = lambda x : np.moveaxis(np.matmul(np.moveaxis(x,2,0),M),0,2) 
+    #dd = lambda x : np.einsum('ijl,jh->ihl',x,M)
+    # the first option is ugly but WAY more efficient
+    
+    #print('einsum 1 took {:.2f}'.format(dt() - t0))
+    #t0 = dt()
     
     EVCR, EVC, EVF, EVM, EMU = [dd(x) for x in [VCR, VC, VF, VM, MU]]
     
     
+    #print('einsum 2 took {:.2f}'.format(dt() - t0))
+    #t0 = dt()
+    
+    
+    
+    '''
+    # combined einsum
+    
+    EVF_check0 = np.einsum('ijk,ijlk,jh->ihl',VFnext,trans_mat_theta,M)
+    EVF_check1 = np.einsum('ijl,ijl,jh->ihl',p_divorce,VF_div+es,M)
+    EVF_check = EVF_check0+EVF_check1
+    
+    print('einsum 3 took {:.2f}'.format(dt() - t0))
+    t0 = dt()
+    if np.allclose(EVF_check,EVF):
+        print('einsum ok!')
+    '''
     return EVCR, EVC, EVF, EVM, EMU
 
 
@@ -361,8 +407,8 @@ def solve_vfi(money,EV_list,umult,kf,km,sigma,beta,i,wn,wt,sgrid,psi):
 
 
 
-jit_rdm = lambda f : jit(f,static_argnums=[4,5])
-@jit_rdm
+#jit_rdm = lambda f : jit(f,static_argnums=[4,5])
+#@jit_rdm
 def ren_divorce_mat(vf_in,vm_in,vf_out,vm_out,ts,thetagrid):#,return_rescale_factor=True):    
     
     # for each [ia,ie] this generates transition matrix over possible future
@@ -373,21 +419,32 @@ def ren_divorce_mat(vf_in,vm_in,vf_out,vm_out,ts,thetagrid):#,return_rescale_fac
     
     
     
-    def L(x): return logit(x/ts)
+    def L(x): 
+        y = np.clip(-x,-10.0,10.0)
+        return 1.0/(1.0+np.exp(y)) #
+        #return logit(x/ts)
     
     na, ne, nt = vf_in.shape
     
-    M = np.minimum(vf_in - vf_out, vm_in - vm_out)
+    M = np.minimum(vf_in - vf_out, vm_in - vm_out)/ts
     i_ebs =  np.argmax(M,axis=2)
-    M_ebs = np.max(M,axis=2)
-    M_dext = np.concatenate((-np.inf*np.ones((na,ne,1)),M),axis=2)
-    M_uext = np.concatenate((M,-np.inf*np.ones((na,ne,1))),axis=2)
-    L_up = np.maximum( L(M_dext[:,:,1:]) - L(M_dext[:,:,:-1]), 0.0)
+    M_ebs = np.take_along_axis(M,i_ebs[:,:,None],2).squeeze(axis=2)
+    #M_dext = np.concatenate((-np.inf*np.ones((na,ne,1)),M),axis=2)
+    #M_uext = np.concatenate((M,-np.inf*np.ones((na,ne,1))),axis=2)
+    
+    LM = L(M)
+    LM_dext = np.concatenate((np.zeros((na,ne,1)),LM),axis=2)
+    LM_uext = np.concatenate((LM,np.zeros((na,ne,1))),axis=2)
+    
+    
+    #L_up = np.maximum( L(M_dext[:,:,1:]) - L(M_dext[:,:,:-1]), 0.0)
+    L_up = np.maximum( LM_dext[:,:,1:] - LM_dext[:,:,:-1], 0.0)
     L_up_cs = np.cumsum(L_up,axis=2)
-    L_down = np.maximum( L(M_uext[:,:,:-1]) - L(M_uext[:,:,1:]), 0.0)
+    L_down = np.maximum( LM_uext[:,:,:-1] - LM_uext[:,:,1:], 0.0)
     L_down_cs = np.cumsum(L_down[:,:,::-1],axis=2)[:,:,::-1] # inverse order cumcum
     
-    p_divorce = (1 - L(M.max(axis=2)))[:,:,None]
+    p_stay = L(M_ebs)[:,:,None]
+   
     #p_stay = np.sum(L_up)
     #assert np.allclose(p_stay,np.sum(L_down))
     
@@ -403,11 +460,15 @@ def ren_divorce_mat(vf_in,vm_in,vf_out,vm_out,ts,thetagrid):#,return_rescale_fac
     i_diagbeloweq = (it_r <= iebs_c) & (it_r == it_c)
     i_diagabove = (it_r > iebs_c) & (it_r == it_c)
     
-    Mout  = i_irtoebs*L_up[:,:,None,:] + i_ebstoir*L_down[:,:,None,:] + \
-            i_diagbeloweq*L_up_cs[:,:,None,:] + \
-            i_diagabove*L_down_cs[:,:,None,:]
+    Mout = np.where(i_irtoebs,L_up[:,:,None,:],0.0)
+    Mout = np.where(i_ebstoir,L_down[:,:,None,:],Mout)
+    Mout = np.where(i_diagbeloweq,L_up_cs[:,:,None,:],Mout)
+    Mout = np.where(i_diagabove,L_down_cs[:,:,None,:],Mout)
+    #Mout  = i_irtoebs*L_up[:,:,None,:] + i_ebstoir*L_down[:,:,None,:] + \
+    #        i_diagbeloweq*L_up_cs[:,:,None,:] + \
+    #        i_diagabove*L_down_cs[:,:,None,:]
     
-    Mout = (1-p_divorce[...,None])*(Mout / np.maximum(Mout.sum(axis=3,keepdims=True),1e-8)) # numerical fix...
+    Mout = (p_stay[...,None])*(Mout / np.maximum(Mout.sum(axis=3,keepdims=True),1e-8)) # numerical fix...
     
 
     # here we build the rescale factor corresponding the the grid
@@ -419,7 +480,7 @@ def ren_divorce_mat(vf_in,vm_in,vf_out,vm_out,ts,thetagrid):#,return_rescale_fac
     factor = np.maximum(ttc/ttr,(1-ttc)/(1-ttr))[None,None,:,:]
     
     # finally we need expected value of the shock for divorce
-    E_shock = logit_expectation_conditional_above(ts,M_ebs)
+    E_shock = logit_expectation_conditional_above(1.0,M_ebs)
     
     return Mout, factor, E_shock
 

@@ -63,6 +63,9 @@ def rouw_nonst_one(sd0,sd1,npts):
             Pi = pi0*A + (1-pi0)*B + pi0*C + (1-pi0)*D
             Pi[1:(n-1),:] = 0.5*Pi[1:(n-1),:]
         assert(np.all(np.abs(np.sum(Pi,axis=1)-1)<1e-5 ))
+        Pi_adj = np.where(Pi>1e-4,Pi,0.0)
+        Pi = Pi_adj / Pi_adj.sum(axis=1,keepdims=True)
+        assert(np.all(np.abs(np.sum(Pi,axis=1)-1)<1e-5 ))
     
     return Pi
 
