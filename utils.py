@@ -9,6 +9,7 @@ Created on Wed Jul 15 11:38:11 2020
 import numpy as onp
 import jax.numpy as jnp
 np = jnp
+from jax.nn import sigmoid as logit_cdf
 
 def compare_arrays(a0,a1,name='',verbose=True,diff=True):
     stats = [np.mean,np.max,np.min,np.median,
@@ -30,3 +31,9 @@ def compare_arrays(a0,a1,name='',verbose=True,diff=True):
         except:
             print('format problems...')
     print('')
+    
+    
+def logit_expectation_conditional_above(ts,a):
+    x = np.clip(a/ts,-10.0,10.0)
+    return (np.log(1+np.exp(x)) - x)*np.exp(x) + np.log(1+np.exp(x))
+    

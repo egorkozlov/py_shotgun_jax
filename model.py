@@ -108,23 +108,23 @@ ff = lambda x : Model(sig_zf=x[0],sig_zm=x[1],sig_zf_init=x[2],sig_zm_init=x[3],
 
 pt = np.array([0.2,0.2,0.4,0.4])
 
+
+
+n_rep = 5
 import jax.random as r
 key = r.PRNGKey(123)
-s = r.uniform(key,(5,4))
-for j in range(5): val0 = ff(s[j,:]*pt)
+s = r.uniform(key,(n_rep,4))
+for j in range(n_rep): val0 = ff(s[j,:]*pt)
 print('value computed for {} sec'.format(dt() - t0))
 print('value 0 is {}'.format(val0))
 t0 = dt()
 
 
 
-'''
-
-
 val, grad = value_and_grad(ff)(pt)
 print('value and grad computed for {} sec'.format(dt() - t0))
 print('value is {}, grad is {}'.format(val,grad))
-'''
+
 
 '''
 t0 = dt()

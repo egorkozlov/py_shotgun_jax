@@ -11,13 +11,14 @@ import jax.numpy as jnp
 np = jnp
 from jax.experimental import loops
 from jax.lax import cond
-from jax import vmap
+from jax import vmap, jit
 
 
 
 def upper_envelope_vmap(bEV,a_implied,c_implied,agrid,li,um,R,sig):
     uvm = vmap(upper_envelope_one,in_axes=(1,1,1,None,0,0,None,None),out_axes=(1,1))
     return uvm(bEV,a_implied,c_implied,agrid,li,um,R,sig)
+
 
 
 def upper_envelope_one(bEV,a_implied,c_implied,agrid,li,um,R,sig):
@@ -212,7 +213,8 @@ def upper_envelope(bEV,a_implied,c_implied,agrid,li,um,R,sig):
     return c_out, V_out
 
 
-
+jit_here = lambda f : jit(f,static_argnums=[3,6,7])
+@jit_here
 def upper_envelope_matrix(bEV,a_implied,c_implied,agrid,li,um,R,sig):
     
     sl = (slice(None,-1),slice(None))
@@ -232,9 +234,6 @@ def upper_envelope_matrix(bEV,a_implied,c_implied,agrid,li,um,R,sig):
         return np.maximum(c,1e-8)**(1-sig)/(1-sig)
     
     
-    # interpolate literally everyhing
-    
-    
     da = agrid[:,None,None] - ai_low[None,:,:]
     da_p = ai_high[None,:,:] - agrid[:,None,None]
     
@@ -252,11 +251,6 @@ def upper_envelope_matrix(bEV,a_implied,c_implied,agrid,li,um,R,sig):
     
     c_egm = np.take_along_axis(c_allint,i_best,1).squeeze(axis=1)
     V_egm = np.take_along_axis(V_check,i_best,1).squeeze(axis=1)
-    #assert False
-    #assert np.all(V_egm>-1e15)
-    #assert np.all(c_egm>0)
-    # then correct those above and below grid
-    
     
     c_below = R*agrid[:,None] + li[None,:]
     V_below = um[None,:]*u(c_below) + bEV[0:1,:]
@@ -273,8 +267,6 @@ def upper_envelope_matrix(bEV,a_implied,c_implied,agrid,li,um,R,sig):
     c_out = i_egm*c_egm + i_below*c_below + i_above*c_above
     V_out = i_egm*V_egm + i_below*V_below + i_above*V_above
     
-    #assert np.all(V_out>-1e19)
-    #assert np.all(c_out>-1e19)
     
     return c_out, V_out
 

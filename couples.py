@@ -15,9 +15,10 @@ from jax.nn import sigmoid as logit
 
 
 from timeit import default_timer as dt
+taste_shock = 0.05
 #def jit(f): return f
  
-from utils import compare_arrays
+from utils import compare_arrays, logit_expectation_conditional_above
 
 def iteration_couples(model,t,Vnext_list,MUnext_list):
     s = model.setup
@@ -58,24 +59,13 @@ def iteration_couples(model,t,Vnext_list,MUnext_list):
     
     
     li = wf[None,:] + wm[None,:]
-    money = R*s.agrid_c[:,None] + li
     
     umult = s.u_mult(s.theta_grid_coarse)
     kf, km = s.c_mult(s.theta_grid_coarse)
     
     
-    
+
     t0 = dt()
-    #print(EV.shape)
-    #solver = jit(solve,static_argnums=[2,3,4,5,6,7,8])
-    V_vfi, VF_vfi, VM_vfi, s_vfi = \
-                    solve_vfi(money,EV,umult,kf,km,sig,bet,i,wn,wt,sgrid,psi)    
-    
-    print('vfi time: {}'.format(dt() - t0))
-    t0 = dt()
-    
-    
-    
     #segm = jit(solve_egm,static_argnums=(3,4,5,6,7,8,9,10,11,12,13,14))
     segm = solve_egm
     
@@ -86,20 +76,12 @@ def iteration_couples(model,t,Vnext_list,MUnext_list):
     
     print('egm time: {}'.format(dt() - t0))
                    
-    #assert np.abs(s_vfi.max() - s.max()) < 1         
-    desc = ['V', 'VF','VM','s']
-    v0 = (V, VF, VM, s)
-    v1 = (V_vfi, VF_vfi, VM_vfi, s_vfi)
-    
-    for d, a0, a1 in zip(desc,v0,v1):
-        name = 'egm vs vfi, {}'.format(d)
-        compare_arrays(a0,a1,name)
-    
-    
     return (V,VF,VM), MU, s
 
-from ue import upper_envelope_matrix, upper_envelope, upper_envelope_vmap
+from ue import upper_envelope_matrix
     
+
+
 def solve_egm(EV_list,EMU,li,umult,kf,km,agrid,sigma,beta,R,i,wn,wt,psi,last):
     
     if not last:
@@ -123,7 +105,8 @@ def solve_egm(EV_list,EMU,li,umult,kf,km,agrid,sigma,beta,R,i,wn,wt,psi,last):
         
         dm = np.diff(m_implied_r,axis=0)
         
-        ind = np.where(np.any(dm<=0,axis=0))[0]
+        i_where = np.any(dm<=0,axis=0)
+        ind = np.where(i_where)[0]
         
         
         # this inwokes arbitrary size dimensionality...
@@ -152,14 +135,14 @@ def solve_egm(EV_list,EMU,li,umult,kf,km,agrid,sigma,beta,R,i,wn,wt,psi,last):
         # this makes the function un-jittable
         if np.any(dm<=0):
             print('upper envelope required: invoking the algorithm')    
-            
+            print('{:.2f} % cases non-monotonic'.format(100*np.mean(i_where)))
             
             bEV_r_ue, a_implied_r_ue, c_implied_r_ue,  = \
                 [x[:,ind] for x in (bEV_r,a_implied_r,c_implied_r)]
             li_r_ue, um_r_ue = [x[ind] for x in (li_r,um_r)]
             
-            uem = jit(upper_envelope_matrix,static_argnums=[3,6,7])
-            c_r_ue, V_r_ue = uem(bEV_r_ue,a_implied_r_ue,c_implied_r_ue,agrid,li_r_ue,um_r_ue,R,sigma)
+            
+            c_r_ue, V_r_ue = upper_envelope_matrix(bEV_r_ue,a_implied_r_ue,c_implied_r_ue,agrid,li_r_ue,um_r_ue,R,sigma)
             #assert np.allclose(V_r2,V_r)
             #assert np.allclose(c_r2,c_r)
             
@@ -243,6 +226,67 @@ def interp_manygrids(grids,xs,axis=0,return_wnext=True,trim=False):
     wnext = (xs_r - grid_j)/(grid_jp - grid_j)
     #assert wnext.shape == j.shape
     return j, (wnext if return_wnext else 1-wnext)
+        
+
+def naive_divorce(model,Vlist,MUlist,M,div_costs=0.0):
+    # this performs integration with a naive divorce
+    
+    s = model.setup
+    
+    VCnext, VFnext, VMnext, VFsingle, VMsingle = Vlist
+    
+    MUnext, MUnext_sf, MUnext_sm = MUlist
+    
+    
+    assets_divorce_fem = 0.5*s.agrid_c
+    assets_divorce_mal = 0.5*s.agrid_c
+    
+    v_a_fem = VecOnGrid(s.agrid_s,assets_divorce_fem)
+    i_f, wn_f, wt_f = v_a_fem.i, v_a_fem.wnext, v_a_fem.wthis
+    
+    v_a_mal = VecOnGrid(s.agrid_s,assets_divorce_mal)
+    i_m, wn_m, wt_m = v_a_mal.i, v_a_mal.wnext, v_a_mal.wthis
+    
+    ie, izf, izm, ipsi = s.all_indices()
+    
+    VF_div = (wt_f[:,None]*VFsingle[i_f,:] + wn_f[:,None]*VFsingle[i_f+1,:])[:,izf][:,:,None] - div_costs
+    VM_div = (wt_m[:,None]*VMsingle[i_m,:] + wn_m[:,None]*VMsingle[i_m+1,:])[:,izm][:,:,None] - div_costs
+    
+    MUF_div = (wt_f[:,None]*(0.5*MUnext_sf)[i_f,:] + wn_f[:,None]*(0.5*MUnext_sf)[i_f+1,:])[:,izf][:,:,None]
+    MUM_div = (wt_m[:,None]*(0.5*MUnext_sm)[i_m,:] + wn_m[:,None]*(0.5*MUnext_sm)[i_m+1,:])[:,izm][:,:,None]
+    
+    t = s.theta_grid_coarse[None,None,:]
+    VC_div = t*VF_div + (1-t)*VM_div
+    MU_div = t*MUF_div + (1-t)*MUM_div
+
+    
+    # get transition probability over theta
+    trans_mat_theta, r_factor, e_shock = ren_divorce_mat(VFnext,VMnext,VF_div,VM_div,taste_shock,s.theta_grid_coarse)
+    p_stay = trans_mat_theta.sum(axis=3)
+    p_divorce = 1.0-p_stay
+    
+    # transition for divorce
+    ee = lambda q : np.einsum('ijk,ijlk->ijl',q,trans_mat_theta)
+    
+    ee_r = lambda q : np.einsum('ijk,ijlk->ijl',q,r_factor*trans_mat_theta)
+    # adds rescaling 
+    
+    es = e_shock[:,:,None]
+    
+    VCR = ee_r(VCnext) + p_divorce*(VC_div+es)
+    
+    VC, VF, VM, MU = [ee(x) + p_divorce*y for x,y in
+                                  zip((VCnext,VFnext,VMnext,MUnext),
+                                      (VC_div+es,VF_div+es,VM_div+es,MU_div))]
+    
+    # transition over exogenous state
+    dd = lambda x : np.einsum('ijk,jl->ilk',x,M)
+    
+    EVCR, EVC, EVF, EVM, EMU = [dd(x) for x in [VCR, VC, VF, VM, MU]]
+    
+    #assert np.all(np.diff(EVC,axis=0)>=0)
+    
+    return EVCR, EVC, EVF, EVM, EMU
 
 
 
@@ -296,8 +340,9 @@ def solve_vfi(money,EV_list,umult,kf,km,sigma,beta,i,wn,wt,sgrid,psi):
 
 
 
-
-def ren_divorce_mat(vf_in,vm_in,vf_out,vm_out,ts,thetagrid,return_rescale_factor=True):    
+jit_rdm = lambda f : jit(f,static_argnums=[4,5])
+@jit_rdm
+def ren_divorce_mat(vf_in,vm_in,vf_out,vm_out,ts,thetagrid):    
     
     # for each [ia,ie] this generates transition matrix over possible future
     # values of theta (itp) given the current one (it). The indexing is
@@ -313,6 +358,7 @@ def ren_divorce_mat(vf_in,vm_in,vf_out,vm_out,ts,thetagrid,return_rescale_factor
     
     M = np.minimum(vf_in - vf_out, vm_in - vm_out)
     i_ebs =  np.argmax(M,axis=2)
+    M_ebs = np.max(M,axis=2)
     M_dext = np.concatenate((-np.inf*np.ones((na,ne,1)),M),axis=2)
     M_uext = np.concatenate((M,-np.inf*np.ones((na,ne,1))),axis=2)
     L_up = np.maximum( L(M_dext[:,:,1:]) - L(M_dext[:,:,:-1]), 0.0)
@@ -342,73 +388,17 @@ def ren_divorce_mat(vf_in,vm_in,vf_out,vm_out,ts,thetagrid,return_rescale_factor
     
     Mout = (1-p_divorce[...,None])*(Mout / np.maximum(Mout.sum(axis=3,keepdims=True),1e-8)) # numerical fix...
     
-    if not return_rescale_factor:
-        return Mout
-    else:
-        # here we build the rescale factor corresponding the the grid
-        # this allows to compute correct value function for couples problem:
-        # we should not allow decision weights to fall
-        tt = thetagrid
-        ttc = tt[:,None]
-        ttr = tt[None,:]
-        factor = np.maximum(ttc/ttr,(1-ttc)/(1-ttr))[None,None,:,:]
-        return Mout, factor
-        
 
-def naive_divorce(model,Vlist,MUlist,M,div_costs=0.0):
-    # this performs integration with a naive divorce
+    # here we build the rescale factor corresponding the the grid
+    # this allows to compute correct value function for couples problem:
+    # we should not allow decision weights to fall
+    tt = thetagrid
+    ttc = tt[:,None]
+    ttr = tt[None,:]
+    factor = np.maximum(ttc/ttr,(1-ttc)/(1-ttr))[None,None,:,:]
     
-    s = model.setup
+    # finally we need expected value of the shock for divorce
+    E_shock = logit_expectation_conditional_above(ts,M_ebs)
     
-    VCnext, VFnext, VMnext, VFsingle, VMsingle = Vlist
-    
-    MUnext, MUnext_sf, MUnext_sm = MUlist
-    
-    
-    assets_divorce_fem = 0.5*s.agrid_c
-    assets_divorce_mal = 0.5*s.agrid_c
-    
-    v_a_fem = VecOnGrid(s.agrid_s,assets_divorce_fem)
-    i_f, wn_f, wt_f = v_a_fem.i, v_a_fem.wnext, v_a_fem.wthis
-    
-    v_a_mal = VecOnGrid(s.agrid_s,assets_divorce_mal)
-    i_m, wn_m, wt_m = v_a_mal.i, v_a_mal.wnext, v_a_mal.wthis
-    
-    ie, izf, izm, ipsi = s.all_indices()
-    
-    VF_div = (wt_f[:,None]*VFsingle[i_f,:] + wn_f[:,None]*VFsingle[i_f+1,:])[:,izf][:,:,None] - div_costs
-    VM_div = (wt_m[:,None]*VMsingle[i_m,:] + wn_m[:,None]*VMsingle[i_m+1,:])[:,izm][:,:,None] - div_costs
-    
-    MUF_div = (wt_f[:,None]*(0.5*MUnext_sf)[i_f,:] + wn_f[:,None]*(0.5*MUnext_sf)[i_f+1,:])[:,izf][:,:,None]
-    MUM_div = (wt_m[:,None]*(0.5*MUnext_sm)[i_m,:] + wn_m[:,None]*(0.5*MUnext_sm)[i_m+1,:])[:,izm][:,:,None]
-    
-    t = s.theta_grid_coarse[None,None,:]
-    VC_div = t*VF_div + (1-t)*VM_div
-    MU_div = t*MUF_div + (1-t)*MUM_div
-
-    
-    # get transition probability over theta
-    trans_mat_theta, r_factor = ren_divorce_mat(VFnext,VMnext,VF_div,VM_div,0.01,s.theta_grid_coarse)
-    p_stay = trans_mat_theta.sum(axis=3)
-    p_divorce = 1.0-p_stay
-    
-    # transition for divorce
-    ee = lambda q : np.einsum('ijk,ijlk->ijl',q,trans_mat_theta)
-    
-    ee_r = lambda q : np.einsum('ijk,ijlk->ijl',q,r_factor*trans_mat_theta)
-    # adds rescaling 
-    VCR = ee_r(VCnext) + p_divorce*VC_div
-    
-    VC, VF, VM, MU = [ee(x) + p_divorce*y for x,y in
-                                  zip((VCnext,VFnext,VMnext,MUnext),
-                                      (VC_div,VF_div,VM_div,MU_div))]
-    
-    # transition over exogenous state
-    dd = lambda x : np.einsum('ijk,jl->ilk',x,M)
-    
-    EVCR, EVC, EVF, EVM, EMU = [dd(x) for x in [VCR, VC, VF, VM, MU]]
-    
-    #assert np.all(np.diff(EVC,axis=0)>=0)
-    
-    return EVCR, EVC, EVF, EVM, EMU
+    return Mout, factor, E_shock
 
